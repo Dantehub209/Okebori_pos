@@ -37,6 +37,8 @@ dependencies:
   supabase_flutter: ^2.17.2
   print_bluetooth_thermal: ^1.2.2
   intl: ^0.20.3
+  package_info_plus: ^10.2.1
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:
