@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ManageBranchesScreen extends StatefulWidget {
@@ -154,8 +155,6 @@ class _ManageBranchesScreenState extends State<ManageBranchesScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Manage Branches'),
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -176,7 +175,7 @@ class _ManageBranchesScreenState extends State<ManageBranchesScreen> {
                         icon: const Icon(Icons.add),
                         label: const Text('Add Branch'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.indigo,
+                          backgroundColor: AppColors.orange,
                           foregroundColor: Colors.white,
                         ),
                       ),

@@ -1,349 +1,634 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'dart:math'; // For math calculations (Haversine formula)
-import 'payment_screen.dart';
+import '../services/pricing.dart';
+import '../services/printer_settings.dart';
+import '../services/receipt_service.dart';
+import '../services/staff_profile.dart';
+import '../theme.dart';
+import '../widgets/printer_picker.dart';
+
+/// Branches, categories and pricing needed to quote a booking.
+class BookingSetup {
+  final List<Map<String, dynamic>> branches;
+  final List<Map<String, dynamic>> categories;
+  final PricingRules rules;
+
+  const BookingSetup({required this.branches, required this.categories, required this.rules});
+
+  static Future<BookingSetup> load() async {
+    final supabase = Supabase.instance.client;
+    final branches = await supabase.from('branches').select('id, name, code, latitude, longitude').eq('status', 'active').order('name');
+    final categories = await supabase.from('parcel_categories').select('id, name').eq('status', 'active').order('name');
+
+    var rules = const PricingRules(); // Defaults if no rule is set up yet
+    try {
+      final businessId = (await supabase.from('businesses').select('id').limit(1).single())['id'];
+      final row = await supabase.from('pricing_rules').select('*').eq('business_id', businessId).maybeSingle();
+      if (row != null) rules = PricingRules.fromRow(row);
+    } catch (e) {
+      debugPrint('Error loading pricing rules: $e');
+    }
+
+    return BookingSetup(
+      branches: List<Map<String, dynamic>>.from(branches),
+      categories: List<Map<String, dynamic>>.from(categories),
+      rules: rules,
+    );
+  }
+}
+
+enum PayMethod {
+  cash('CASH', 'Cash'),
+  mpesa('MPESA', 'M-Pesa'),
+  card('CARD', 'Card');
+
+  final String code;
+  final String label;
+  const PayMethod(this.code, this.label);
+}
 
 class BookingScreen extends StatefulWidget {
-  const BookingScreen({super.key});
+  final StaffProfile profile;
+  final Future<BookingSetup> Function() loadSetup;
+
+  const BookingScreen({super.key, required this.profile, this.loadSetup = BookingSetup.load});
 
   @override
   State<BookingScreen> createState() => _BookingScreenState();
 }
 
 class _BookingScreenState extends State<BookingScreen> {
-  List<Map<String, dynamic>> _branches = [];
-  List<Map<String, dynamic>> _categories = [];
-  bool _isLoading = true;
+  BookingSetup? _setup;
+  String? _loadError;
+  bool _isSaving = false;
+  bool _showErrors = false;
 
-  // Controllers
   final _senderName = TextEditingController();
   final _senderPhone = TextEditingController();
-  final _senderEmail = TextEditingController();
   final _receiverName = TextEditingController();
   final _receiverPhone = TextEditingController();
-  final _receiverEmail = TextEditingController();
   final _weight = TextEditingController();
+  final _cashReceived = TextEditingController();
+  final _mpesaCode = TextEditingController();
+
+  late final _controllers = [_senderName, _senderPhone, _receiverName, _receiverPhone, _weight, _cashReceived, _mpesaCode];
 
   String? _originId;
   String? _destId;
   String? _categoryId;
-
-  // Dynamic Pricing Variables
-  double _basePrice = 150.0;
-  double _baseWeight = 5.0;
-  double _extraKgPrice = 50.0;
-  double _fuelCostPerKm = 30.0;
-  bool _rulesLoaded = false;
-  
-  double _calculatedPrice = 0.0;
-  double _distanceKm = 0.0;
+  PayMethod _method = PayMethod.cash;
 
   @override
   void initState() {
     super.initState();
-    _loadData(); // Loads branches and categories
-    _loadPricingRules(); // Loads dynamic pricing
+    _originId = widget.profile.branchId;
+    for (final c in _controllers) {
+      c.addListener(() => setState(() {}));
+    }
+    _load();
   }
 
   @override
   void dispose() {
-    _senderName.dispose(); _senderPhone.dispose(); _senderEmail.dispose();
-    _receiverName.dispose(); _receiverPhone.dispose(); _receiverEmail.dispose();
-    _weight.dispose();
+    for (final c in _controllers) {
+      c.dispose();
+    }
     super.dispose();
   }
 
-  Future<void> _loadData() async {
+  Future<void> _load() async {
+    setState(() => _loadError = null);
     try {
-      final supabase = Supabase.instance.client;
-      final branches = await supabase.from('branches').select('id, name, latitude, longitude').eq('status', 'active');
-      final categories = await supabase.from('parcel_categories').select('id, name').eq('status', 'active');
-      
+      final setup = await widget.loadSetup();
+      if (!mounted) return;
       setState(() {
-        _branches = List<Map<String, dynamic>>.from(branches);
-        _categories = List<Map<String, dynamic>>.from(categories);
-        _isLoading = false;
+        _setup = setup;
+        if (!setup.branches.any((b) => b['id'] == _originId)) _originId = null;
       });
     } catch (e) {
-      setState(() => _isLoading = false);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error loading data: $e')));
+      if (mounted) setState(() => _loadError = '$e');
     }
   }
 
-  Future<void> _loadPricingRules() async {
+  Map<String, dynamic>? _branch(String? id) {
+    if (id == null) return null;
+    for (final b in _setup!.branches) {
+      if (b['id'] == id) return b;
+    }
+    return null;
+  }
+
+  double? get _weightKg => double.tryParse(_weight.text.trim());
+  double? get _cashAmount => double.tryParse(_cashReceived.text.trim());
+
+  /// Straight-line distance between the chosen branches, or null if either lacks GPS.
+  double? get _distanceKm {
+    final from = _branch(_originId), to = _branch(_destId);
+    if (from == null || to == null || from['id'] == to['id']) return null;
+    final coords = [from['latitude'], from['longitude'], to['latitude'], to['longitude']];
+    if (coords.any((c) => c == null)) return null;
+    final c = coords.map((v) => (v as num).toDouble()).toList();
+    return distanceBetween(c[0], c[1], c[2], c[3]);
+  }
+
+  Quote? get _quote {
+    final weight = _weightKg, distance = _distanceKm;
+    if (weight == null || weight <= 0 || distance == null) return null;
+    return calculateQuote(_setup!.rules, weight, distance);
+  }
+
+  /// Everything still missing before the booking can be taken, in form order.
+  List<String> _problems(Quote? quote) {
+    final from = _branch(_originId), to = _branch(_destId);
+    final sameBranch = from != null && from['id'] == to?['id'];
+    return [
+      if (from == null) 'Choose the branch the parcel is sent from.',
+      if (to == null) 'Choose the destination branch.',
+      if (sameBranch) 'Destination must be a different branch.',
+      if (from != null && to != null && !sameBranch && _distanceKm == null)
+        '${from['latitude'] == null || from['longitude'] == null ? from['name'] : to['name']} has no GPS location. Add it in Settings > Manage Branches.',
+      if (_senderName.text.trim().isEmpty) "Enter the sender's name.",
+      if (_senderPhone.text.trim().isEmpty) "Enter the sender's phone number.",
+      if (_receiverName.text.trim().isEmpty) "Enter the receiver's name.",
+      if (_receiverPhone.text.trim().isEmpty) "Enter the receiver's phone number.",
+      if (_categoryId == null) 'Choose a parcel category.',
+      if (_weightKg == null || _weightKg! <= 0) 'Enter the parcel weight in kg.',
+      if (quote != null && _method == PayMethod.cash && (_cashAmount ?? 0) < quote.total)
+        'Cash received must be at least KSh ${formatKsh(quote.total)}.',
+      if (_method == PayMethod.mpesa && _mpesaCode.text.trim().isEmpty) 'Enter the M-Pesa transaction code.',
+    ];
+  }
+
+  void _clearForm() {
+    for (final c in _controllers) {
+      c.clear();
+    }
+    setState(() {
+      _destId = null;
+      _categoryId = null;
+      _method = PayMethod.cash;
+      _showErrors = false;
+    });
+  }
+
+  Future<void> _submit() async {
+    FocusScope.of(context).unfocus();
+    final quote = _quote;
+    if (_problems(quote).isNotEmpty || quote == null) {
+      setState(() => _showErrors = true);
+      return;
+    }
+
+    setState(() => _isSaving = true);
     try {
-      final supabase = Supabase.instance.client;
-      final businessId = (await supabase.from('businesses').select('id').limit(1).single())['id'];
-      
-      final response = await supabase
-          .from('pricing_rules')
-          .select('*')
-          .eq('business_id', businessId)
-          .maybeSingle();
-
-      if (response != null) {
-        setState(() {
-          _basePrice = (response['base_price'] as num).toDouble();
-          _baseWeight = (response['base_weight_kg'] as num).toDouble();
-          _extraKgPrice = (response['price_per_extra_kg'] as num).toDouble();
-          _fuelCostPerKm = (response['fuel_cost_per_km'] as num).toDouble();
-          _rulesLoaded = true;
-        });
-      } else {
-        setState(() => _rulesLoaded = true); // Fallback to defaults if no rule exists
-      }
+      final result = await _saveBooking(quote);
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      await _showDone(result, quote);
     } catch (e) {
-      print("Error loading pricing rules: $e");
-      setState(() => _rulesLoaded = true); // Fallback to defaults
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Booking failed: $e'), backgroundColor: AppColors.errorText));
     }
   }
 
-  // --- Haversine Formula to calculate distance between two GPS points ---
-  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-    const p = 0.017453292519943295; // Pi/180
-    final a = 0.5 - cos((lat2 - lat1) * p) / 2 +
-        cos(lat1 * p) * cos(lat2 * p) * (1 - cos((lon2 - lon1) * p)) / 2;
-    return 12742 * asin(sqrt(a)); // Earth radius approx 6371km * 2
+  Future<({String bookingNumber, String receiptNumber})> _saveBooking(Quote quote) async {
+    final supabase = Supabase.instance.client;
+    final userId = supabase.auth.currentUser!.id;
+    final businessId = (await supabase.from('businesses').select('id').limit(1).single())['id'];
+    final amount = double.parse(quote.total.toStringAsFixed(2));
+
+    final senderId = await _getOrCreateCustomer(_senderName.text.trim(), _senderPhone.text.trim(), businessId);
+    final receiverId = await _getOrCreateCustomer(_receiverName.text.trim(), _receiverPhone.text.trim(), businessId);
+
+    final parcel = await supabase.from('parcels').insert({
+      'business_id': businessId,
+      'sender_id': senderId,
+      'receiver_id': receiverId,
+      'origin_branch_id': _originId,
+      'destination_branch_id': _destId,
+      'category_id': _categoryId,
+      'weight_kg': _weightKg,
+      'declared_value': 0.0,
+      'is_fragile': false,
+      'shipping_charge': amount,
+      'distance_km': quote.distanceKm,
+      'status': 'BOOKED',
+      'booked_by': userId,
+    }).select().single();
+
+    final payment = await supabase.from('payments').insert({
+      'parcel_id': parcel['id'],
+      'business_id': businessId,
+      'branch_id': widget.profile.branchId,
+      'amount': amount,
+      'payment_method': _method.code,
+      'mpesa_transaction_code': _method == PayMethod.mpesa ? _mpesaCode.text.trim().toUpperCase() : null,
+      'status': 'COMPLETED',
+      'received_by': userId,
+      'paid_at': DateTime.now().toIso8601String(),
+    }).select().single();
+
+    // The receipt_number is generated by a database trigger
+    final receipt = await supabase.from('receipts').insert({
+      'business_id': businessId,
+      'branch_id': widget.profile.branchId,
+      'parcel_id': parcel['id'],
+      'payment_id': payment['id'],
+      'issued_by': userId,
+      'issued_at': DateTime.now().toIso8601String(),
+    }).select().single();
+
+    return (bookingNumber: parcel['booking_number'].toString(), receiptNumber: receipt['receipt_number'].toString());
   }
 
-  // --- Calculate Price Logic ---
-  Future<void> _calculateAndBook() async {
-    // 1. Validation
-    if (_originId == null || _destId == null || _categoryId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select Origin, Destination, and Category'), backgroundColor: Colors.orange));
-      return;
-    }
-    if (_senderName.text.isEmpty || _senderPhone.text.isEmpty || _receiverName.text.isEmpty || _receiverPhone.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sender and Receiver names/phones are required'), backgroundColor: Colors.orange));
-      return;
-    }
-    if (_weight.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Weight is required'), backgroundColor: Colors.orange));
-      return;
-    }
+  // Reuses an existing customer with the same phone number to avoid duplicates
+  Future<String> _getOrCreateCustomer(String name, String phone, String businessId) async {
+    final supabase = Supabase.instance.client;
+    final existing = await supabase.from('customers').select('id').eq('phone', phone).maybeSingle();
+    if (existing != null) return existing['id'];
 
-    if (!_rulesLoaded) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Loading pricing rules, please wait a moment'), backgroundColor: Colors.orange));
-      return;
-    }
-
-    setState(() => _isLoading = true);
-
-    try {
-      // 2. Get Branch Coordinates
-      final originBranch = _branches.firstWhere((b) => b['id'] == _originId);
-      final destBranch = _branches.firstWhere((b) => b['id'] == _destId);
-
-      final lat1 = (originBranch['latitude'] as num?)?.toDouble() ?? 0.0;
-      final lon1 = (originBranch['longitude'] as num?)?.toDouble() ?? 0.0;
-      final lat2 = (destBranch['latitude'] as num?)?.toDouble() ?? 0.0;
-      final lon2 = (destBranch['longitude'] as num?)?.toDouble() ?? 0.0;
-
-      // 3. Calculate Distance
-      _distanceKm = _calculateDistance(lat1, lon1, lat2, lon2);
-
-      // 4. Calculate Cost using the DYNAMIC state variables
-      final weight = double.parse(_weight.text);
-
-      double weightCost = 0;
-      if (weight <= _baseWeight) {
-        weightCost = _basePrice;
-      } else {
-        double extraWeight = weight - _baseWeight;
-        weightCost = _basePrice + (extraWeight * _extraKgPrice);
-      }
-
-      double distanceCost = _distanceKm * _fuelCostPerKm;
-      _calculatedPrice = weightCost + distanceCost;
-
-      setState(() => _isLoading = false);
-
-      // 5. Show Confirmation Dialog
-      _showConfirmationDialog();
-
-    } catch (e) {
-      setState(() => _isLoading = false);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Calculation Error: $e')));
-    }
+    final created = await supabase.from('customers').insert({
+      'business_id': businessId,
+      'name': name,
+      'phone': phone,
+    }).select().single();
+    return created['id'];
   }
 
-  void _showConfirmationDialog() {
-    showDialog(
+  Future<bool> _printReceipt(({String bookingNumber, String receiptNumber}) result, Quote quote) async {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+      await Future.delayed(const Duration(seconds: 2)); // No Bluetooth printing on Windows: simulate
+      return true;
+    }
+    var printer = await PrinterSettings.load();
+    if (printer == null && mounted) {
+      await showPrinterPicker(context);
+      printer = await PrinterSettings.load();
+    }
+    if (printer == null) return false;
+
+    return ReceiptService.printReceipt(
+      macAddress: printer.mac,
+      branchName: widget.profile.branchName,
+      bookingNumber: result.bookingNumber,
+      receiptNumber: result.receiptNumber,
+      senderName: _senderName.text.trim(),
+      senderPhone: _senderPhone.text.trim(),
+      receiverName: _receiverName.text.trim(),
+      receiverPhone: _receiverPhone.text.trim(),
+      destination: _branch(_destId)?['name'] ?? '',
+      weight: _weightKg!,
+      amount: double.parse(quote.total.toStringAsFixed(2)),
+      paymentMethod: _method.label,
+      cashierName: widget.profile.name,
+    );
+  }
+
+  Future<void> _showDone(({String bookingNumber, String receiptNumber}) result, Quote quote) async {
+    final change = _method == PayMethod.cash ? (_cashAmount ?? 0) - quote.total : 0.0;
+    var printing = false;
+    await showDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Confirm Booking'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Distance: ${_distanceKm.toStringAsFixed(2)} km'),
-            Text('Weight: ${_weight.text} kg'),
-            const Divider(),
-            Text('Total Shipping Charge: KES ${_calculatedPrice.toStringAsFixed(2)}', 
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.green)),
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          icon: const Icon(Icons.check_circle, color: AppColors.successText, size: 48),
+          title: const Text('Parcel booked'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _summaryRow('Booking no.', result.bookingNumber),
+              _summaryRow('Receipt no.', result.receiptNumber),
+              _summaryRow('Paid (${_method.label})', 'KSh ${formatKsh(quote.total)}'),
+              if (change > 0) ...[
+                const SizedBox(height: 12),
+                _messageBox('Change to give: KSh ${formatKsh(change)}', AppColors.successBg, AppColors.successText, margin: false),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: printing ? null : () => Navigator.pop(dialogContext),
+              child: const Text('Done'),
+            ),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12)),
+              onPressed: printing
+                  ? null
+                  : () async {
+                      setDialogState(() => printing = true);
+                      final ok = await _printReceipt(result, quote);
+                      if (!dialogContext.mounted || !mounted) return;
+                      setDialogState(() => printing = false);
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text(ok ? 'Receipt printed' : 'Printing failed. Check the printer and try again.'),
+                        backgroundColor: ok ? AppColors.successText : AppColors.errorText,
+                      ));
+                      if (ok) Navigator.pop(dialogContext);
+                    },
+              icon: printing
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Icon(Icons.print),
+              label: const Text('Print receipt'),
+            ),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _saveBooking();
-            },
-            child: const Text('Confirm & Save'),
+      ),
+    );
+    if (mounted) _clearForm();
+  }
+
+  // --- UI ---
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loadError != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text('Could not load branches and prices.\n$_loadError', textAlign: TextAlign.center),
+            const SizedBox(height: 16),
+            OutlinedButton(onPressed: _load, child: const Text('Try again')),
+          ]),
+        ),
+      );
+    }
+    if (_setup == null) return const Center(child: CircularProgressIndicator());
+
+    final quote = _quote;
+    final problems = _problems(quote);
+    final change = quote != null && _method == PayMethod.cash && _cashAmount != null ? _cashAmount! - quote.total : null;
+
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
+        children: [
+          _card([
+            _sectionTitle('Route'),
+            _branchDropdown('From', _originId, (v) => setState(() => _originId = v)),
+            const SizedBox(height: 12),
+            _branchDropdown('To', _destId, (v) => setState(() => _destId = v)),
+          ]),
+          _card([
+            _sectionTitle('Sender'),
+            _textField(_senderName, 'Full name', capitalize: true),
+            const SizedBox(height: 12),
+            _textField(_senderPhone, 'Phone number', phone: true),
+          ]),
+          _card([
+            _sectionTitle('Receiver'),
+            _textField(_receiverName, 'Full name', capitalize: true),
+            const SizedBox(height: 12),
+            _textField(_receiverPhone, 'Phone number', phone: true),
+          ]),
+          _card([
+            _sectionTitle('Parcel'),
+            DropdownButtonFormField<String>(
+              key: ValueKey('category-$_categoryId'),
+              initialValue: _categoryId,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Category'),
+              items: _setup!.categories.map((c) => DropdownMenuItem(value: c['id'].toString(), child: Text(c['name']))).toList(),
+              onChanged: (v) => setState(() => _categoryId = v),
+            ),
+            const SizedBox(height: 12),
+            _textField(_weight, 'Weight (kg)', decimal: true, suffix: 'kg'),
+          ]),
+          _card([
+            _sectionTitle('Payment'),
+            _methodSelector(),
+            const SizedBox(height: 12),
+            if (_method == PayMethod.cash) _textField(_cashReceived, 'Cash received (KSh)', decimal: true),
+            if (_method == PayMethod.mpesa) _textField(_mpesaCode, 'M-Pesa transaction code', upper: true),
+            if (_method == PayMethod.card)
+              const Text('Charge the card on the card machine before booking.', style: TextStyle(color: AppColors.muted)),
+          ]),
+          if (quote != null) _quoteCard(quote),
+          if (change != null && change >= 0)
+            _messageBox('Change to give: KSh ${formatKsh(change)}', AppColors.successBg, AppColors.successText),
+          if (_showErrors && problems.isNotEmpty) _messageBox(problems.first, AppColors.errorBg, AppColors.errorText),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _isSaving ? null : _submit,
+              child: _isSaving
+                  ? const SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
+                  : Text(_submitLabel(quote), textAlign: TextAlign.center),
+            ),
           ),
+          const SizedBox(height: 10),
+          OutlinedButton(onPressed: _isSaving ? null : _clearForm, child: const Text('Clear form')),
         ],
       ),
     );
   }
 
-  Future<void> _saveBooking() async {
-    setState(() => _isLoading = true);
-    try {
-      final supabase = Supabase.instance.client;
-      final userId = supabase.auth.currentUser!.id;
-      final businessId = (await supabase.from('businesses').select('id').limit(1).single())['id'];
+  String _submitLabel(Quote? quote) {
+    if (quote == null) return 'Book parcel';
+    final amount = 'KSh ${formatKsh(quote.total)}';
+    return switch (_method) {
+      PayMethod.cash => 'Take $amount cash and book',
+      PayMethod.mpesa => 'Record $amount M-Pesa and book',
+      PayMethod.card => 'Record $amount card and book',
+    };
+  }
 
-      // 1. Save or Find Sender Customer
-      String? senderId = await _getOrCreateCustomer(_senderName.text, _senderPhone.text, _senderEmail.text, businessId);
-
-      // 2. Save or Find Receiver Customer
-      String? receiverId = await _getOrCreateCustomer(_receiverName.text, _receiverPhone.text, _receiverEmail.text, businessId);
-
-      // 3. Create Parcel
-      final parcelData = {
-        'business_id': businessId,
-        'sender_id': senderId,
-        'receiver_id': receiverId,
-        'origin_branch_id': _originId,
-        'destination_branch_id': _destId,
-        'category_id': _categoryId,
-        'weight_kg': double.parse(_weight.text),
-        'declared_value': 0.0,
-        'is_fragile': false,
-        'shipping_charge': _calculatedPrice,
-        'distance_km': _distanceKm,
-        'status': 'BOOKED',
-        'booked_by': userId,
-      };
-
-      final parcelRes = await supabase.from('parcels').insert(parcelData).select().single();
-      
-      setState(() => _isLoading = false);
-
-      // 4. Navigate to Payment Screen
-      if (mounted) {
-        final destBranch = _branches.firstWhere((b) => b['id'] == _destId);
-        
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => PaymentScreen(
-              parcelId: parcelRes['id'],
-              bookingNumber: parcelRes['booking_number'],
-              amount: _calculatedPrice,
-              senderName: _senderName.text,
-              receiverName: _receiverName.text,
-              destination: destBranch['name'],
-              weight: double.parse(_weight.text),
-            ),
+  Widget _card(List<Widget> children) => Padding(
+        padding: const EdgeInsets.only(bottom: 14),
+        child: Card(
+          margin: EdgeInsets.zero,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: children),
           ),
-        );
-      }
-    } catch (e) {
-      setState(() => _isLoading = false);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save Error: $e')));
-    }
-  }
-
-  // Helper to avoid duplicate customers
-  Future<String> _getOrCreateCustomer(String name, String phone, String? email, String businessId) async {
-    final supabase = Supabase.instance.client;
-    
-    // Try to find existing customer by phone
-    final existing = await supabase.from('customers').select('id').eq('phone', phone).maybeSingle();
-    
-    if (existing != null) {
-      return existing['id'];
-    }
-
-    // Create new
-    final newCustomer = await supabase.from('customers').insert({
-      'business_id': businessId,
-      'name': name,
-      'phone': phone,
-      'email': email,
-    }).select().single();
-
-    return newCustomer['id'];
-  }
-
-  // --- UI BUILDERS ---
-  Widget _buildSection(String title, IconData icon, List<Widget> children) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(children: [Icon(icon, color: Colors.indigo, size: 20), const SizedBox(width: 8), Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo))]),
-            const Divider(height: 24),
-            ...children,
-          ],
         ),
-      ),
+      );
+
+  Widget _sectionTitle(String text) => Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Text(text.toUpperCase(),
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 0.8, color: AppColors.muted)),
+      );
+
+  Widget _textField(TextEditingController controller, String label,
+      {bool phone = false, bool decimal = false, bool capitalize = false, bool upper = false, String? suffix}) {
+    return TextField(
+      controller: controller,
+      style: const TextStyle(fontSize: 17),
+      decoration: InputDecoration(labelText: label, suffixText: suffix),
+      keyboardType: phone
+          ? TextInputType.phone
+          : decimal
+              ? const TextInputType.numberWithOptions(decimal: true)
+              : TextInputType.text,
+      inputFormatters: decimal ? [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))] : null,
+      textCapitalization: upper
+          ? TextCapitalization.characters
+          : capitalize
+              ? TextCapitalization.words
+              : TextCapitalization.none,
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+  Widget _branchDropdown(String label, String? value, ValueChanged<String?> onChanged) {
+    return DropdownButtonFormField<String>(
+      key: ValueKey('$label-$value'),
+      initialValue: value,
+      isExpanded: true,
+      decoration: InputDecoration(labelText: label),
+      items: _setup!.branches.map((b) => DropdownMenuItem(value: b['id'].toString(), child: Text(b['name']))).toList(),
+      onChanged: onChanged,
+    );
+  }
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('New Booking'), backgroundColor: Colors.indigo, foregroundColor: Colors.white),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            _buildSection('Route Information', Icons.route, [
-              DropdownButtonFormField<String>(decoration: const InputDecoration(labelText: 'Origin Branch *'), value: _originId, items: _branches.map((b) => DropdownMenuItem(value: b['id'].toString(), child: Text(b['name']))).toList(), onChanged: (v) => setState(() => _originId = v)),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(decoration: const InputDecoration(labelText: 'Destination Branch *'), value: _destId, items: _branches.map((b) => DropdownMenuItem(value: b['id'].toString(), child: Text(b['name']))).toList(), onChanged: (v) => setState(() => _destId = v)),
-            ]),
-            _buildSection('Sender Details', Icons.person_outline, [
-              TextField(controller: _senderName, decoration: const InputDecoration(labelText: 'Full Name *', prefixIcon: Icon(Icons.person))),
-              const SizedBox(height: 16),
-              TextField(controller: _senderPhone, decoration: const InputDecoration(labelText: 'Phone Number *', prefixIcon: Icon(Icons.phone)), keyboardType: TextInputType.phone),
-              const SizedBox(height: 16),
-              TextField(controller: _senderEmail, decoration: const InputDecoration(labelText: 'Email (Optional)', prefixIcon: Icon(Icons.email_outlined)), keyboardType: TextInputType.emailAddress),
-            ]),
-            _buildSection('Receiver Details', Icons.person_pin_outlined, [
-              TextField(controller: _receiverName, decoration: const InputDecoration(labelText: 'Full Name *', prefixIcon: Icon(Icons.person))),
-              const SizedBox(height: 16),
-              TextField(controller: _receiverPhone, decoration: const InputDecoration(labelText: 'Phone Number *', prefixIcon: Icon(Icons.phone)), keyboardType: TextInputType.phone),
-              const SizedBox(height: 16),
-              TextField(controller: _receiverEmail, decoration: const InputDecoration(labelText: 'Email (Optional)', prefixIcon: Icon(Icons.email_outlined)), keyboardType: TextInputType.emailAddress),
-            ]),
-            _buildSection('Parcel Details', Icons.inventory_2_outlined, [
-              DropdownButtonFormField<String>(decoration: const InputDecoration(labelText: 'Category *'), value: _categoryId, items: _categories.map((c) => DropdownMenuItem(value: c['id'].toString(), child: Text(c['name']))).toList(), onChanged: (v) => setState(() => _categoryId = v)),
-              const SizedBox(height: 16),
-              TextField(controller: _weight, decoration: const InputDecoration(labelText: 'Weight (kg) *', prefixIcon: Icon(Icons.scale), suffixText: 'kg'), keyboardType: const TextInputType.numberWithOptions(decimal: true)),
-            ]),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _calculateAndBook,
-                icon: const Icon(Icons.calculate),
-                label: const Text('Calculate & Book', style: TextStyle(fontSize: 16)),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16)),
+  Widget _methodSelector() {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: PayMethod.values.map((m) {
+          final selected = m == _method;
+          return Expanded(
+            child: GestureDetector(
+              onTap: () => setState(() => _method = m),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(
+                  color: selected ? Colors.white : Colors.transparent,
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: selected ? const [BoxShadow(color: Color(0x1A000000), blurRadius: 3, offset: Offset(0, 1))] : null,
+                ),
+                child: Text(m.label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                      color: selected ? AppColors.text : AppColors.muted,
+                    )),
               ),
             ),
-            const SizedBox(height: 32),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _quoteCard(Quote quote) {
+    final from = _branch(_originId)!, to = _branch(_destId)!;
+    final rules = _setup!.rules;
+    final km = quote.distanceKm.round();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Card(
+        margin: EdgeInsets.zero,
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              color: AppColors.navy,
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(flex: 2, child: _routeEnd(from, CrossAxisAlignment.start)),
+                  Expanded(
+                    flex: 3,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Column(children: [
+                        Text('$km km', style: const TextStyle(color: AppColors.orange, fontWeight: FontWeight.w700, fontSize: 13)),
+                        const SizedBox(height: 4),
+                        Container(height: 2, color: AppColors.orange),
+                        const SizedBox(height: 6),
+                      ]),
+                    ),
+                  ),
+                  Expanded(flex: 2, child: _routeEnd(to, CrossAxisAlignment.end)),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+              child: Column(children: [
+                _priceRow('Base rate', quote.baseRate),
+                _priceRow(
+                  quote.extraWeightKg > 0
+                      ? 'Weight over ${formatKsh(rules.baseWeightKg)} kg (+${formatKsh(quote.extraWeightKg)} kg)'
+                      : 'Weight, up to ${formatKsh(rules.baseWeightKg)} kg',
+                  quote.weightCharge,
+                ),
+                _priceRow('Distance, $km km', quote.distanceCharge),
+              ]),
+            ),
+            Container(
+              color: AppColors.background,
+              padding: const EdgeInsets.all(14),
+              child: Row(children: [
+                const Text('Total', style: TextStyle(color: AppColors.muted, fontSize: 15)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerRight,
+                    child: Text('KSh ${formatKsh(quote.total)}',
+                        style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800, color: AppColors.text)),
+                  ),
+                ),
+              ]),
+            ),
           ],
         ),
       ),
     );
   }
+
+  Widget _routeEnd(Map<String, dynamic> branch, CrossAxisAlignment align) {
+    final name = branch['name'].toString();
+    final code = (branch['code'] ?? (name.length > 3 ? name.substring(0, 3) : name)).toString().toUpperCase();
+    return Column(
+      crossAxisAlignment: align,
+      children: [
+        Text(code, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 2),
+        Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFFB9BFCA), fontSize: 12)),
+      ],
+    );
+  }
+
+  Widget _priceRow(String label, double amount) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 5),
+        child: Row(children: [
+          Expanded(child: Text(label, style: const TextStyle(fontSize: 15, color: AppColors.muted))),
+          Text(formatKsh(amount), style: const TextStyle(fontSize: 15, color: AppColors.text)),
+        ]),
+      );
+
+  Widget _summaryRow(String label, String value) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(children: [
+          Text(label, style: const TextStyle(color: AppColors.muted)),
+          const SizedBox(width: 12),
+          Expanded(child: Text(value, textAlign: TextAlign.end, style: const TextStyle(fontWeight: FontWeight.w700))),
+        ]),
+      );
+
+  Widget _messageBox(String text, Color background, Color foreground, {bool margin = true}) => Container(
+        width: double.infinity,
+        margin: margin ? const EdgeInsets.only(bottom: 14) : null,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(color: background, borderRadius: BorderRadius.circular(10)),
+        child: Text(text, style: TextStyle(color: foreground, fontSize: 15)),
+      );
 }

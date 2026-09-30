@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 
@@ -239,8 +240,6 @@ class _ParcelDetailsScreenState extends State<ParcelDetailsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(_parcel!['booking_number']),
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: const Icon(Icons.update),
@@ -259,11 +258,11 @@ class _ParcelDetailsScreenState extends State<ParcelDetailsScreen> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
                 decoration: BoxDecoration(
-                  color: Colors.indigo.withOpacity(0.1),
+                  color: AppColors.orange.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.indigo),
+                  border: Border.all(color: AppColors.orange),
                 ),
-                child: Text(currentStatus.replaceAll('_', ' '), style: const TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold, fontSize: 16)),
+                child: Text(currentStatus.replaceAll('_', ' '), style: const TextStyle(color: AppColors.orange, fontWeight: FontWeight.bold, fontSize: 16)),
               ),
             ),
             const SizedBox(height: 16),
@@ -310,7 +309,7 @@ class _ParcelDetailsScreenState extends State<ParcelDetailsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Route', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
+                    const Text('Route', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.orange)),
                     const SizedBox(height: 8),
                     Row(children: [const Icon(Icons.location_on, size: 16), const SizedBox(width: 8), Text('From: ${origin?['name'] ?? 'N/A'}')]),
                     const SizedBox(height: 8),
@@ -338,7 +337,7 @@ class _ParcelDetailsScreenState extends State<ParcelDetailsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Parcel Info', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
+                    const Text('Parcel Info', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.orange)),
                     const SizedBox(height: 8),
                     Text('Category: ${category?['name'] ?? 'N/A'}'),
                     Text('Weight: ${_parcel!['weight_kg']} kg'),
@@ -387,7 +386,7 @@ class _ParcelDetailsScreenState extends State<ParcelDetailsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo, fontSize: 12)),
+            Text(title, style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.orange, fontSize: 12)),
             const SizedBox(height: 4),
             Text(name ?? 'N/A', style: const TextStyle(fontWeight: FontWeight.w500)),
             Text(phone ?? '', style: const TextStyle(fontSize: 12, color: Colors.grey)),
