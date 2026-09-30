@@ -5,9 +5,10 @@ import '../theme.dart';
 import '../widgets/printer_picker.dart';
 import 'booking_screen.dart';
 import 'parcels_list_screen.dart';
-import 'settings_screen.dart';
+import 'shift_screen.dart';
 
-/// Main screen after sign-in: branch header, and Book / Parcels / Settings tabs.
+/// Main screen after sign-in: branch header, and Book / Parcels / Shift tabs.
+/// Admin settings live in the web admin (lib/admin), not on the phone.
 class HomeShell extends StatefulWidget {
   final VoidCallback onSignedOut;
   final Future<StaffProfile> Function() loadProfile;
@@ -25,12 +26,12 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
-  static const _tabs = ['Book', 'Parcels', 'Settings'];
+  static const _tabs = ['Book', 'Parcels', 'Shift'];
 
   StaffProfile? _profile;
   String? _error;
   int _tab = 0;
-  int _parcelsVersion = 0; // Bumped on each visit so the list reloads
+  int _visits = 0; // Bumped on each tab switch so Parcels and Shift reload
 
   @override
   void initState() {
@@ -78,8 +79,8 @@ class _HomeShellState extends State<HomeShell> {
                     index: _tab,
                     children: [
                       BookingScreen(profile: profile, loadSetup: widget.loadBookingSetup),
-                      _tab == 1 ? ParcelsListScreen(key: ValueKey(_parcelsVersion)) : const SizedBox.shrink(),
-                      const SettingsScreen(),
+                      _tab == 1 ? ParcelsListScreen(key: ValueKey(_visits)) : const SizedBox.shrink(),
+                      _tab == 2 ? ShiftScreen(key: ValueKey(_visits)) : const SizedBox.shrink(),
                     ],
                   ),
           ),
@@ -155,7 +156,7 @@ class _HomeShellState extends State<HomeShell> {
             return Expanded(
               child: InkWell(
                 onTap: () => setState(() {
-                  if (i == 1 && _tab != 1) _parcelsVersion++;
+                  if (i != _tab) _visits++;
                   _tab = i;
                 }),
                 child: Container(
