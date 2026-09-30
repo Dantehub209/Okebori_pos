@@ -88,11 +88,6 @@ class _ParcelsListScreenState extends State<ParcelsListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Parcels Dashboard'),
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
-      ),
       body: Column(
         children: [
           // --- SEARCH BAR ---

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class PricingRulesScreen extends StatefulWidget {
@@ -125,8 +126,6 @@ class _PricingRulesScreenState extends State<PricingRulesScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Pricing Rules'),
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -177,7 +176,7 @@ class _PricingRulesScreenState extends State<PricingRulesScreen> {
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
-        prefixIcon: Icon(icon, color: Colors.indigo),
+        prefixIcon: Icon(icon, color: AppColors.navy),
         border: const OutlineInputBorder(),
       ),
     );

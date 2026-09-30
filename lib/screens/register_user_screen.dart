@@ -118,14 +118,14 @@ class _RegisterUserScreenState extends State<RegisterUserScreen> {
   Widget build(BuildContext context) {
     if (_isDataLoading) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Register New User'), backgroundColor: Colors.indigo, foregroundColor: Colors.white),
+        appBar: AppBar(title: const Text('Register New User')),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     if (_roles.isEmpty || _branches.isEmpty) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Register New User'), backgroundColor: Colors.indigo, foregroundColor: Colors.white),
+        appBar: AppBar(title: const Text('Register New User')),
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -140,7 +140,7 @@ class _RegisterUserScreenState extends State<RegisterUserScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Register New User'), backgroundColor: Colors.indigo, foregroundColor: Colors.white),
+      appBar: AppBar(title: const Text('Register New User')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(

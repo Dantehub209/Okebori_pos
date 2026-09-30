@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 
@@ -99,8 +100,6 @@ class _BranchReportsScreenState extends State<BranchReportsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.reportTitle),
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -114,7 +113,7 @@ class _BranchReportsScreenState extends State<BranchReportsScreen> {
                   children: [
                     Text(
                       'Daily Collections - ${DateFormat('EEEE, MMM d, yyyy').format(DateTime.now())}',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo),
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.navy),
                     ),
                     const SizedBox(height: 24),
 

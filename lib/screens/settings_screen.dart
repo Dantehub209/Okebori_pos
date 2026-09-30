@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'register_user_screen.dart';
 import 'manage_branches_screen.dart';
@@ -68,18 +69,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final hasAccess = isSuperAdmin || isBranchManager;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Settings'),
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
-      ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Card(
-              color: Colors.indigo.shade50,
+              color: AppColors.background,
               child: Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Row(
@@ -90,7 +86,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(_userName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                        Text(_userRole, style: const TextStyle(color: Colors.indigo, fontWeight: FontWeight.w500)),
+                        Text(_userRole, style: const TextStyle(color: AppColors.navy, fontWeight: FontWeight.w500)),
                       ],
                     ),
                   ],
@@ -171,7 +167,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: ListTile(
-        leading: Icon(icon, color: Colors.indigo, size: 30),
+        leading: Icon(icon, color: AppColors.navy, size: 30),
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
         subtitle: Text(subtitle),
         trailing: const Icon(Icons.chevron_right),
