@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../theme.dart';
+import 'admin_theme.dart';
 
 /// Edits the app_version row that tells phones a new APK is available.
 class AppVersionScreen extends StatefulWidget {
@@ -61,7 +61,7 @@ class _AppVersionScreenState extends State<AppVersionScreen> {
       problem = 'The download link must start with https://';
     }
     if (problem != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(problem), backgroundColor: AppColors.errorText));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(problem), backgroundColor: AdminColors.errorText));
       return;
     }
 
@@ -77,11 +77,11 @@ class _AppVersionScreenState extends State<AppVersionScreen> {
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Saved. Phones will see the update next time the app opens.'), backgroundColor: AppColors.successText));
+            content: Text('Saved. Phones will see the update next time the app opens.'), backgroundColor: AdminColors.successText));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: $e'), backgroundColor: AppColors.errorText));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: $e'), backgroundColor: AdminColors.errorText));
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -100,8 +100,8 @@ class _AppVersionScreenState extends State<AppVersionScreen> {
                 if (_error != null)
                   Container(
                     padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(color: AppColors.errorBg, borderRadius: BorderRadius.circular(10)),
-                    child: Text(_error!, style: const TextStyle(color: AppColors.errorText)),
+                    decoration: BoxDecoration(color: AdminColors.errorBg, borderRadius: BorderRadius.circular(10)),
+                    child: Text(_error!, style: const TextStyle(color: AdminColors.errorText)),
                   )
                 else
                   Card(
@@ -112,7 +112,7 @@ class _AppVersionScreenState extends State<AppVersionScreen> {
                         const Text(
                           'After building a new APK, upload it, then enter its build number (the number after + in '
                           'pubspec.yaml) and download link here. Phones on an older build get an "Update available" message.',
-                          style: TextStyle(color: AppColors.muted),
+                          style: TextStyle(color: AdminColors.muted),
                         ),
                         const SizedBox(height: 20),
                         Row(children: [

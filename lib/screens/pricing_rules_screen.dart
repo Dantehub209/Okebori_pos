@@ -176,7 +176,7 @@ class _PricingRulesScreenState extends State<PricingRulesScreen> {
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
-        prefixIcon: Icon(icon, color: AppColors.navy),
+        prefixIcon: Icon(icon, color: AppColors.orange),
         border: const OutlineInputBorder(),
       ),
     );

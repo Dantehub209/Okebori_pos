@@ -1,28 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../screens/branch_reports_screen.dart';
 import '../screens/manage_branches_screen.dart';
 import '../screens/parcels_list_screen.dart';
 import '../screens/pricing_rules_screen.dart';
 import '../services/staff_profile.dart';
-import '../theme.dart';
+import 'admin_theme.dart';
 import 'app_version_screen.dart';
+import 'overview_screen.dart';
 import 'staff_screen.dart';
 
 class _Page {
   final String label;
-  final IconData icon;
   final Widget Function(StaffProfile profile) builder;
-  const _Page(this.label, this.icon, this.builder);
+  const _Page(this.label, this.builder);
 }
 
-/// Sidebar layout for the web admin. Super Admins see everything;
-/// Branch Managers see reports and parcels for their branch.
+/// Top-menu layout for the web admin. Super Admins see everything;
+/// Branch Managers see the overview and parcels for their branch.
 class AdminShell extends StatefulWidget {
   final VoidCallback onSignedOut;
   final Future<StaffProfile> Function() loadProfile;
+  final Future<OverviewData> Function(String? branchId) loadOverview;
 
-  const AdminShell({super.key, required this.onSignedOut, this.loadProfile = StaffProfile.load});
+  const AdminShell({
+    super.key,
+    required this.onSignedOut,
+    this.loadProfile = StaffProfile.load,
+    this.loadOverview = OverviewData.load,
+  });
 
   @override
   State<AdminShell> createState() => _AdminShellState();
@@ -55,22 +60,18 @@ class _AdminShellState extends State<AdminShell> {
     widget.onSignedOut();
   }
 
-  List<_Page> _pagesFor(StaffProfile profile) {
-    final superAdmin = profile.role == 'Super Admin';
-    return [
-      _Page('Reports', Icons.analytics_outlined, (p) => BranchReportsScreen(
-            branchId: superAdmin ? null : p.branchId,
-            reportTitle: superAdmin ? 'All branches' : p.branchName,
-          )),
-      _Page('Parcels', Icons.inventory_2_outlined, (p) => const ParcelsListScreen()),
-      if (superAdmin) ...[
-        _Page('Branches', Icons.store_outlined, (p) => const ManageBranchesScreen()),
-        _Page('Pricing', Icons.price_change_outlined, (p) => const PricingRulesScreen()),
-        _Page('Staff', Icons.people_outline, (p) => const StaffScreen()),
-        _Page('App updates', Icons.system_update_outlined, (p) => const AppVersionScreen()),
-      ],
-    ];
-  }
+  bool _isSuperAdmin(StaffProfile p) => p.role == 'Super Admin';
+
+  List<_Page> _pagesFor(StaffProfile profile) => [
+        _Page('Overview', (p) => OverviewScreen(branchId: _isSuperAdmin(p) ? null : p.branchId, loadData: widget.loadOverview)),
+        _Page('Parcels', (p) => const ParcelsListScreen()),
+        if (_isSuperAdmin(profile)) ...[
+          _Page('Branches', (p) => const ManageBranchesScreen()),
+          _Page('Pricing', (p) => const PricingRulesScreen()),
+          _Page('Staff', (p) => const StaffScreen()),
+          _Page('App updates', (p) => const AppVersionScreen()),
+        ],
+      ];
 
   @override
   Widget build(BuildContext context) {
@@ -90,13 +91,13 @@ class _AdminShellState extends State<AdminShell> {
       );
     }
 
-    if (profile.role != 'Super Admin' && profile.role != 'Branch Manager') {
+    if (!_isSuperAdmin(profile) && profile.role != 'Branch Manager') {
       return Scaffold(
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const Icon(Icons.lock_outline, size: 48, color: AppColors.muted),
+              const Icon(Icons.lock_outline, size: 48, color: AdminColors.muted),
               const SizedBox(height: 16),
               Text('${profile.name}, the admin page is for managers only.\nUse the Okebori POS app on your phone.',
                   textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)),
@@ -110,106 +111,71 @@ class _AdminShellState extends State<AdminShell> {
 
     final pages = _pagesFor(profile);
     final index = _index.clamp(0, pages.length - 1);
-    final wide = MediaQuery.sizeOf(context).width >= 900;
-    final content = Align(
-      alignment: Alignment.topCenter,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 960),
-        // Pages keep their own AppBar; here it reads as a plain page title.
-        child: Theme(
-          data: Theme.of(context).copyWith(
-            appBarTheme: const AppBarTheme(
-              backgroundColor: AppColors.background,
-              foregroundColor: AppColors.text,
-              surfaceTintColor: Colors.transparent,
-              centerTitle: false,
-              elevation: 0,
-              scrolledUnderElevation: 0,
-              titleTextStyle: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.text),
-            ),
-          ),
-          child: KeyedSubtree(key: ValueKey('$index-$_visits'), child: pages[index].builder(profile)),
-        ),
-      ),
-    );
-
-    void select(int i) => setState(() {
-          if (i != _index) _visits++;
-          _index = i;
-        });
 
     return Scaffold(
-      appBar: AppBar(
-        centerTitle: false,
-        automaticallyImplyLeading: !wide,
-        title: Row(children: [
-          const Text('Okebori Admin', style: TextStyle(fontWeight: FontWeight.w800)),
-          const SizedBox(width: 12),
-          Container(width: 1, height: 20, color: const Color(0xFF5A6273)),
-          const SizedBox(width: 12),
-          Flexible(
-            child: Text('${profile.name}, ${profile.role}',
-                overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, color: Color(0xFFB9BFCA))),
+      body: Column(children: [
+        _topBar(profile, pages, index),
+        Expanded(
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1200),
+              child: KeyedSubtree(key: ValueKey('$index-$_visits'), child: pages[index].builder(profile)),
+            ),
           ),
-        ]),
-        bottom: const PreferredSize(
-          preferredSize: Size.fromHeight(3),
-          child: ColoredBox(color: AppColors.orange, child: SizedBox(height: 3, width: double.infinity)),
         ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: OutlinedButton(
-              onPressed: _signOut,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.white,
-                side: const BorderSide(color: Color(0xFF5A6273)),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              ),
-              child: const Text('Sign out'),
-            ),
-          ),
-        ],
+      ]),
+    );
+  }
+
+  Widget _topBar(StaffProfile profile, List<_Page> pages, int index) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: AdminColors.header,
+        border: Border(bottom: BorderSide(color: AdminColors.orange, width: 3)),
       ),
-      drawer: wide
-          ? null
-          : Drawer(
-              child: SafeArea(
-                child: ListView(children: [
-                  for (var i = 0; i < pages.length; i++)
-                    ListTile(
-                      leading: Icon(pages[i].icon, color: i == index ? AppColors.orange : AppColors.muted),
-                      title: Text(pages[i].label,
-                          style: TextStyle(fontWeight: i == index ? FontWeight.w700 : FontWeight.w500)),
-                      selected: i == index,
-                      onTap: () {
-                        Navigator.pop(context);
-                        select(i);
-                      },
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(children: [
+        const Text('Okebori', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AdminColors.text)),
+        const SizedBox(width: 8),
+        Text(_isSuperAdmin(profile) ? 'Head office' : profile.branchName,
+            style: const TextStyle(fontSize: 14, color: AdminColors.muted)),
+        const SizedBox(width: 20),
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(children: [
+              for (var i = 0; i < pages.length; i++)
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: TextButton(
+                    onPressed: () => setState(() {
+                      if (i != _index) _visits++;
+                      _index = i;
+                    }),
+                    style: TextButton.styleFrom(
+                      foregroundColor: i == index ? AdminColors.text : const Color(0xFFC9D1D9),
+                      backgroundColor: i == index ? AdminColors.selected : Colors.transparent,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                      textStyle: TextStyle(fontSize: 15, fontWeight: i == index ? FontWeight.w700 : FontWeight.w500),
                     ),
-                ]),
-              ),
-            ),
-      body: wide
-          ? Row(children: [
-              NavigationRail(
-                extended: true,
-                minExtendedWidth: 210,
-                backgroundColor: Colors.white,
-                selectedIndex: index,
-                onDestinationSelected: select,
-                indicatorColor: AppColors.orange.withValues(alpha: 0.12),
-                selectedIconTheme: const IconThemeData(color: AppColors.orange),
-                selectedLabelTextStyle: const TextStyle(color: AppColors.text, fontWeight: FontWeight.w700),
-                unselectedLabelTextStyle: const TextStyle(color: AppColors.muted),
-                destinations: [
-                  for (final p in pages) NavigationRailDestination(icon: Icon(p.icon), label: Text(p.label)),
-                ],
-              ),
-              const VerticalDivider(width: 1, color: AppColors.border),
-              Expanded(child: content),
-            ])
-          : content,
+                    child: Text(pages[i].label),
+                  ),
+                ),
+            ]),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Tooltip(
+          message: '${profile.name}, ${profile.role}',
+          child: OutlinedButton(
+            onPressed: _signOut,
+            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14)),
+            child: const Text('Sign out'),
+          ),
+        ),
+      ]),
     );
   }
 }

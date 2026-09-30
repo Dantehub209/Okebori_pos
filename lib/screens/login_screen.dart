@@ -84,9 +84,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   children: [
                     const Icon(Icons.local_shipping, size: 64, color: AppColors.orange),
                     const SizedBox(height: 16),
-                    Text(widget.title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.navy)),
+                    Text(widget.title, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Theme.of(context).colorScheme.onSurface)),
                     const SizedBox(height: 8),
-                    Text(widget.subtitle, style: const TextStyle(color: AppColors.muted)),
+                    Text(widget.subtitle, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                     const SizedBox(height: 32),
                     TextField(
                       controller: _emailController,

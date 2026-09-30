@@ -103,7 +103,6 @@ class _ParcelsListScreenState extends State<ParcelsListScreen> {
                     : null,
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 filled: true,
-                fillColor: Colors.grey[100],
               ),
             ),
           ),

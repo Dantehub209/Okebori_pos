@@ -175,7 +175,7 @@ class _ManageBranchesScreenState extends State<ManageBranchesScreen> {
                         icon: const Icon(Icons.add),
                         label: const Text('Add Branch'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.navy,
+                          backgroundColor: AppColors.orange,
                           foregroundColor: Colors.white,
                         ),
                       ),

@@ -43,8 +43,10 @@ install the update over the existing app.
 ## Web admin (for managers on a laptop)
 
 Settings are not in the phone app. Managers use the web admin in a browser:
-reports, parcels, branches, pricing, staff and app updates. Super Admins see
-every page; Branch Managers see reports and parcels; cashiers are turned away.
+an Overview dashboard (today across all branches), parcels, branches, pricing,
+staff and app updates. Super Admins see
+every page; Branch Managers see the Overview and parcels for their branch;
+cashiers are turned away.
 
 - Try it locally: `flutter run -d chrome -t lib/admin/admin_main.dart`
 - Build the site: `flutter build web --release -t lib/admin/admin_main.dart`

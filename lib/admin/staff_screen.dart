@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../screens/register_user_screen.dart';
-import '../theme.dart';
+import 'admin_theme.dart';
 
 /// Lists staff accounts with their role and branch.
 class StaffScreen extends StatefulWidget {
@@ -77,9 +77,9 @@ class _StaffScreenState extends State<StaffScreen> {
                         for (final u in users)
                           ListTile(
                             leading: CircleAvatar(
-                              backgroundColor: AppColors.background,
+                              backgroundColor: AdminColors.selected,
                               child: Text((u['name'] ?? '?').toString().characters.first.toUpperCase(),
-                                  style: const TextStyle(color: AppColors.navy, fontWeight: FontWeight.w700)),
+                                  style: const TextStyle(color: AdminColors.text, fontWeight: FontWeight.w700)),
                             ),
                             title: Text(u['name'] ?? '-', style: const TextStyle(fontWeight: FontWeight.w600)),
                             subtitle: Text([u['email'], u['phone']].where((v) => v != null && '$v'.isNotEmpty).join(' · ')),
@@ -90,7 +90,7 @@ class _StaffScreenState extends State<StaffScreen> {
                                 Text(_roles[u['role_id']?.toString()] ?? '-', style: const TextStyle(fontWeight: FontWeight.w600)),
                                 Text(
                                   '${_branches[u['branch_id']?.toString()] ?? 'No branch'}${u['status'] == 'active' ? '' : ' · ${u['status']}'}',
-                                  style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                                  style: const TextStyle(color: AdminColors.muted, fontSize: 12),
                                 ),
                               ],
                             ),
