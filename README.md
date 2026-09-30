@@ -49,10 +49,10 @@ every page; Branch Managers see the Overview and parcels for their branch;
 cashiers are turned away.
 
 - Try it locally: `flutter run -d chrome -t lib/admin/admin_main.dart`
-- Build the site: `flutter build web --release -t lib/admin/admin_main.dart`
-  and upload the `build/web` folder to any static host (GitHub Pages, Netlify,
-  Firebase Hosting, etc.). If it is served from a sub-folder, add
-  `--base-href /folder-name/` to the build command.
+- Online: every push to `main` rebuilds the admin and publishes it to GitHub
+  Pages at https://dantehub209.github.io/Okebori_pos/ (see
+  `.github/workflows/admin-web.yml`). To republish without a code change, run
+  the "Deploy web admin" workflow from the repo's Actions tab.
 
 Access control in the app is only cosmetic: make sure Supabase Row Level
 Security only lets admins change branches, pricing, users and app_version.
