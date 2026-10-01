@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../screens/register_user_screen.dart';
 import 'admin_theme.dart';
+import 'edit_staff_screen.dart';
 
-/// Lists staff accounts with their role and branch.
+/// Lists staff accounts with their role and branch; tap one to edit it.
 class StaffScreen extends StatefulWidget {
   const StaffScreen({super.key});
 
@@ -46,6 +47,16 @@ class _StaffScreenState extends State<StaffScreen> {
     _load();
   }
 
+  Future<void> _editStaff(Map<String, dynamic> user) async {
+    final saved = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (context) => EditStaffScreen(user: user, roles: _roles, branches: _branches)),
+    );
+    if (saved == true) _load();
+  }
+
+  static bool _isActive(Map<String, dynamic> u) => (u['status'] ?? 'active').toString().toLowerCase() == 'active';
+
   @override
   Widget build(BuildContext context) {
     final users = _users;
@@ -76,24 +87,37 @@ class _StaffScreenState extends State<StaffScreen> {
                       child: Column(children: [
                         for (final u in users)
                           ListTile(
+                            onTap: () => _editStaff(u),
                             leading: CircleAvatar(
                               backgroundColor: AdminColors.selected,
                               child: Text((u['name'] ?? '?').toString().characters.first.toUpperCase(),
                                   style: const TextStyle(color: AdminColors.text, fontWeight: FontWeight.w700)),
                             ),
-                            title: Text(u['name'] ?? '-', style: const TextStyle(fontWeight: FontWeight.w600)),
-                            subtitle: Text([u['email'], u['phone']].where((v) => v != null && '$v'.isNotEmpty).join(' · ')),
-                            trailing: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Text(_roles[u['role_id']?.toString()] ?? '-', style: const TextStyle(fontWeight: FontWeight.w600)),
-                                Text(
-                                  '${_branches[u['branch_id']?.toString()] ?? 'No branch'}${u['status'] == 'active' ? '' : ' · ${u['status']}'}',
-                                  style: const TextStyle(color: AdminColors.muted, fontSize: 12),
+                            title: Row(children: [
+                              Flexible(child: Text(u['name'] ?? '-', style: const TextStyle(fontWeight: FontWeight.w600))),
+                              if (!_isActive(u)) ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(color: AdminColors.errorBg, borderRadius: BorderRadius.circular(4)),
+                                  child: const Text('Inactive', style: TextStyle(color: AdminColors.errorText, fontSize: 11)),
                                 ),
                               ],
-                            ),
+                            ]),
+                            subtitle: Text([u['email'], u['phone']].where((v) => v != null && '$v'.isNotEmpty).join(' · ')),
+                            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                              Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(_roles[u['role_id']?.toString()] ?? 'No role', style: const TextStyle(fontWeight: FontWeight.w600)),
+                                  Text(_branches[u['branch_id']?.toString()] ?? 'No branch',
+                                      style: const TextStyle(color: AdminColors.muted, fontSize: 12)),
+                                ],
+                              ),
+                              const SizedBox(width: 12),
+                              const Icon(Icons.edit_outlined, size: 18, color: AdminColors.muted),
+                            ]),
                           ),
                       ]),
                     ),

@@ -5,7 +5,8 @@
 --     select * from pg_policies where schemaname = 'public';
 --
 -- What this does:
---   * Removes every existing rule on the Okebori tables and replaces them with the set below.
+--   * Removes every existing rule on the Okebori tables (including the old
+--     "Allow all for authenticated users" ones) and replaces them with the set below.
 --   * Only signed-in staff with an active account can read anything.
 --   * Cashiers can book parcels, take payments, issue receipts and update parcel status,
 --     always as themselves. They cannot change or delete payments or receipts, or edit
@@ -31,13 +32,20 @@ as $$
     and lower(coalesce(u.status, 'active')) = 'active'
 $$;
 
+-- Any active staff account counts, even one with no role set yet
 create or replace function public.is_staff()
 returns boolean
 language sql
 stable
 security definer
 set search_path = public
-as $$ select public.current_staff_role() is not null $$;
+as $$
+  select exists (
+    select 1 from public.users u
+    where u.id = auth.uid()
+      and lower(coalesce(u.status, 'active')) = 'active'
+  )
+$$;
 
 create or replace function public.is_super_admin()
 returns boolean
@@ -58,8 +66,10 @@ declare
 begin
   foreach t in array array[
     'businesses', 'roles', 'branches', 'users', 'customers', 'parcel_categories',
-    'pricing_rules', 'parcels', 'payments', 'receipts', 'parcel_status_history'
+    'pricing_rules', 'parcels', 'payments', 'receipts', 'parcel_status_history',
+    'transport_modes', 'parcel_items', 'settings', 'branch_distances'
   ] loop
+    continue when to_regclass('public.' || t) is null; -- skip tables this project doesn't have
     for p in select policyname from pg_policies where schemaname = 'public' and tablename = t loop
       execute format('drop policy %I on public.%I', p.policyname, t);
     end loop;
@@ -74,7 +84,9 @@ do $$
 declare
   t text;
 begin
-  foreach t in array array['businesses', 'roles', 'branches', 'parcel_categories', 'pricing_rules', 'users'] loop
+  foreach t in array array['businesses', 'roles', 'branches', 'parcel_categories', 'pricing_rules', 'users',
+                           'transport_modes', 'settings', 'branch_distances'] loop
+    continue when to_regclass('public.' || t) is null;
     execute format('create policy "Super admins can add" on public.%I for insert to authenticated with check (public.is_super_admin())', t);
     execute format('create policy "Super admins can edit" on public.%I for update to authenticated using (public.is_super_admin()) with check (public.is_super_admin())', t);
     execute format('create policy "Super admins can delete" on public.%I for delete to authenticated using (public.is_super_admin())', t);
@@ -94,6 +106,19 @@ create policy "Staff can update parcels" on public.parcels
   for update to authenticated using (public.is_staff()) with check (public.is_staff());
 create policy "Super admins can delete parcels" on public.parcels
   for delete to authenticated using (public.is_super_admin());
+
+-- Parcel items: added and corrected alongside their parcel
+do $$
+begin
+  if to_regclass('public.parcel_items') is not null then
+    create policy "Staff can add parcel items" on public.parcel_items
+      for insert to authenticated with check (public.is_staff());
+    create policy "Staff can edit parcel items" on public.parcel_items
+      for update to authenticated using (public.is_staff()) with check (public.is_staff());
+    create policy "Super admins can delete parcel items" on public.parcel_items
+      for delete to authenticated using (public.is_super_admin());
+  end if;
+end $$;
 
 -- Money: recorded once by the person taking it; only Super Admins can correct
 create policy "Staff can record payments as themselves" on public.payments
