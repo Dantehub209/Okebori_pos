@@ -72,6 +72,8 @@ Security only lets admins change branches, pricing, users and app_version.
 5. `supabase/parcel_rules.sql`: only the sending branch can dispatch or
    cancel a parcel, and only the destination branch can receive and hand it
    over (Super Admins can do anything).
+6. `supabase/delete_records.sql`: lets Super Admins delete parcels (with their
+   payments, receipts and tracking) and customers from the web admin.
 
 All files are safe to run again. After step 2, sign in as a cashier and
 make a test booking to confirm everything still works.

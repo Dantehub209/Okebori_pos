@@ -19,7 +19,8 @@ class UpdateService {
       if (row == null) return;
 
       final info = await PackageInfo.fromPlatform();
-      final currentBuild = int.tryParse(info.buildNumber) ?? 0;
+      // Split APKs add 1000/2000/4000 per phone type (e.g. build 2 becomes 2002 on arm64)
+      final currentBuild = (int.tryParse(info.buildNumber) ?? 0) % 1000;
       final latestBuild = row['latest_build'] as int;
       final minBuild = row['min_build'] as int;
       if (currentBuild >= latestBuild) return;

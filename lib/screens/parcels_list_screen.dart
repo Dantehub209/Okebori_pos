@@ -128,7 +128,11 @@ class _ParcelsListScreenState extends State<ParcelsListScreen> {
                                 margin: const EdgeInsets.only(bottom: 12),
                                 child: ListTile(
                                   contentPadding: const EdgeInsets.all(16),
-                                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => ParcelDetailsScreen(parcelId: parcel['id']))),
+                                  onTap: () async {
+                                    final deleted = await Navigator.push<bool>(
+                                        context, MaterialPageRoute(builder: (context) => ParcelDetailsScreen(parcelId: parcel['id'])));
+                                    if (deleted == true) _fetchParcels();
+                                  },
                                   leading: CircleAvatar(
                                     backgroundColor: _getStatusColor(status).withOpacity(0.2),
                                     child: Icon(Icons.inventory_2, color: _getStatusColor(status)),
