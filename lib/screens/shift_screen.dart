@@ -78,10 +78,10 @@ class _ShiftScreenState extends State<ShiftScreen> {
                 color: AppColors.navy,
                 padding: const EdgeInsets.all(16),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('Collected', style: TextStyle(color: Color(0xFFB9BFCA))),
+                  const Text('Collected', style: TextStyle(color: AppColors.muted)),
                   const SizedBox(height: 4),
                   Text('KSh ${formatKsh(_total(null))}',
-                      style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w800)),
+                      style: const TextStyle(color: AppColors.text, fontSize: 30, fontWeight: FontWeight.w800)),
                   const SizedBox(height: 4),
                   Text('${payments.length} ${payments.length == 1 ? 'booking' : 'bookings'}',
                       style: const TextStyle(color: AppColors.orange, fontWeight: FontWeight.w700)),

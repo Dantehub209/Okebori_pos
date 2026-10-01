@@ -109,12 +109,12 @@ class _HomeShellState extends State<HomeShell> {
                     Text(profile?.branchName ?? 'Okebori POS',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800)),
+                        style: const TextStyle(color: AppColors.text, fontSize: 20, fontWeight: FontWeight.w800)),
                     const SizedBox(height: 2),
                     Text(profile == null ? '' : '${profile.name}, ${profile.role}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Color(0xFFB9BFCA), fontSize: 13)),
+                        style: const TextStyle(color: AppColors.muted, fontSize: 13)),
                   ],
                 ),
               ),
@@ -131,8 +131,8 @@ class _HomeShellState extends State<HomeShell> {
   Widget _headerButton(String label, VoidCallback onPressed) => OutlinedButton(
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
-          foregroundColor: Colors.white,
-          side: const BorderSide(color: Color(0xFF5A6273)),
+          foregroundColor: AppColors.text,
+          side: const BorderSide(color: AppColors.border),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           minimumSize: Size.zero,
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -145,7 +145,7 @@ class _HomeShellState extends State<HomeShell> {
   Widget _bottomTabs() {
     return Container(
       decoration: const BoxDecoration(
-        color: Colors.white,
+        color: AppColors.navy,
         border: Border(top: BorderSide(color: AppColors.border)),
       ),
       child: SafeArea(

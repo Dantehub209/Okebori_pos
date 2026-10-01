@@ -1,19 +1,19 @@
 import 'package:flutter/material.dart';
 import '../theme.dart';
 
-/// Dark palette for the web admin.
+/// The web admin's palette; the same colours as the phone app (theme.dart).
 class AdminColors {
-  static const background = Color(0xFF0D1117);
-  static const header = Color(0xFF010409);
-  static const surface = Color(0xFF161B22);
-  static const border = Color(0xFF30363D);
-  static const text = Color(0xFFE6EDF3);
-  static const muted = Color(0xFF8B949E);
-  static const selected = Color(0xFF262C36);
+  static const background = AppColors.background;
+  static const header = AppColors.navy;
+  static const surface = AppColors.surface;
+  static const border = AppColors.border;
+  static const text = AppColors.text;
+  static const muted = AppColors.muted;
+  static const selected = AppColors.selected;
   static const orange = AppColors.orange;
-  static const successText = Color(0xFF3FB950);
-  static const errorBg = Color(0xFF3D1A1A);
-  static const errorText = Color(0xFFFF7B72);
+  static const successText = AppColors.successText;
+  static const errorBg = AppColors.errorBg;
+  static const errorText = AppColors.errorText;
 }
 
 ThemeData buildAdminTheme() {
