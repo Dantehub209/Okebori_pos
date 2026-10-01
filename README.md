@@ -73,13 +73,21 @@ Security only lets admins change branches, pricing, users and app_version.
 All three files are safe to run again. After step 2, sign in as a cashier and
 make a test booking to confirm everything still works.
 
-### Add staff function
+### Staff functions
 
-"Add staff" in the web admin uses a server function so the admin stays signed in.
-Deploy it once: Supabase dashboard > **Edge Functions** > **Deploy a new function**
-> **Via Editor**, name it `create-staff`, paste the contents of
-`supabase/functions/create-staff/index.ts`, and click **Deploy**.
-(Or with the Supabase CLI: `supabase functions deploy create-staff`.)
+Adding and editing staff in the web admin uses two server functions, so the
+admin stays signed in and can change logins. Deploy each once: Supabase
+dashboard > **Edge Functions** > **Deploy a new function** > **Via Editor**,
+use the name shown, paste the file's contents, and click **Deploy**.
+
+| Name | File | Used by |
+|---|---|---|
+| `create-staff` | `supabase/functions/create-staff/index.ts` | Staff > Add staff |
+| `update-staff` | `supabase/functions/update-staff/index.ts` | Staff > tap a person |
+
+Editing covers name, phone, email, role, branch, a new password, and Active.
+Turning Active off blocks their sign-in immediately; their past records stay.
+(Or with the Supabase CLI: `supabase functions deploy create-staff update-staff`.)
 
 ## Signing key (do once, before the first APK you send out)
 
