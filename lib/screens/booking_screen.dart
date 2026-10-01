@@ -460,9 +460,9 @@ class _BookingScreenState extends State<BookingScreen> {
                 duration: const Duration(milliseconds: 150),
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(
-                  color: selected ? Colors.white : Colors.transparent,
+                  color: selected ? AppColors.selected : Colors.transparent,
                   borderRadius: BorderRadius.circular(8),
-                  boxShadow: selected ? const [BoxShadow(color: Color(0x1A000000), blurRadius: 3, offset: Offset(0, 1))] : null,
+                  border: selected ? Border.all(color: AppColors.border) : null,
                 ),
                 child: Text(m.label,
                     textAlign: TextAlign.center,
@@ -556,9 +556,9 @@ class _BookingScreenState extends State<BookingScreen> {
     return Column(
       crossAxisAlignment: align,
       children: [
-        Text(code, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w800)),
+        Text(code, style: const TextStyle(color: AppColors.text, fontSize: 22, fontWeight: FontWeight.w800)),
         const SizedBox(height: 2),
-        Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFFB9BFCA), fontSize: 12)),
+        Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.muted, fontSize: 12)),
       ],
     );
   }
