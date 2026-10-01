@@ -10,6 +10,8 @@ create table if not exists public.app_version (
 );
 
 alter table public.app_version enable row level security;
+grant select on public.app_version to anon, authenticated;
+grant insert, update on public.app_version to authenticated;
 
 drop policy if exists "Anyone can read app version" on public.app_version;
 create policy "Anyone can read app version"
