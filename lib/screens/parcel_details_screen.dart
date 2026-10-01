@@ -101,6 +101,38 @@ class _ParcelDetailsScreenState extends State<ParcelDetailsScreen> {
     }
   }
 
+  /// Super Admins only: removes the parcel with its payments, receipts and tracking
+  /// (supabase/delete_records.sql).
+  Future<void> _deleteParcel() async {
+    final booking = _parcel!['booking_number'];
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete $booking?'),
+        content: const Text('Its payment, receipt and tracking history are deleted too, and it disappears from reports. '
+            'For a real parcel that will not be sent, use Cancel instead.\n\nThis cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Keep')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.errorText, foregroundColor: Colors.white),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await Supabase.instance.client.rpc('delete_parcel', params: {'p_parcel_id': widget.parcelId});
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$booking deleted'), backgroundColor: AppColors.successText));
+      Navigator.pop(context, true);
+    } catch (e) {
+      final message = e is PostgrestException ? e.message : '$e';
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message), backgroundColor: Colors.red));
+    }
+  }
+
   // Who may do what (also enforced in the database by supabase/parcel_rules.sql):
   // the sending branch dispatches or cancels; the destination branch receives and hands over.
   bool get _isSuperAdmin => _userRole == 'Super Admin';
@@ -243,6 +275,12 @@ class _ParcelDetailsScreenState extends State<ParcelDetailsScreen> {
             onPressed: _showStatusOptions,
             tooltip: 'Update Status',
           ),
+          if (_isSuperAdmin)
+            IconButton(
+              icon: const Icon(Icons.delete_outline, color: AppColors.errorText),
+              onPressed: _deleteParcel,
+              tooltip: 'Delete parcel',
+            ),
         ],
       ),
       body: SingleChildScrollView(
