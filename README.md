@@ -1,6 +1,7 @@
-# okebori_pos
+# Okebori POS
 
-A new Flutter project.
+Courier booking app for branch cashiers (Android) plus a web admin for managers.
+Backend: Supabase.
 
 ## Getting Started
 
@@ -56,3 +57,53 @@ cashiers are turned away.
 
 Access control in the app is only cosmetic: make sure Supabase Row Level
 Security only lets admins change branches, pricing, users and app_version.
+
+## Supabase setup (run in the SQL editor, in this order)
+
+1. **Save your current access rules first.** Run
+   `select * from pg_policies where schemaname = 'public';` and download the result.
+2. `supabase/security.sql`: access rules. Cashiers can book and take payments
+   but cannot edit or delete money, prices, branches or staff. Inactive staff
+   lose access. The public can read nothing.
+3. `supabase/book_parcel.sql`: saves a booking (customers, parcel, payment,
+   receipt) in one step, so a dropped connection can't leave half a booking.
+   **Run this before giving cashiers an APK built from this version.**
+4. `supabase/app_version.sql`: the update alert.
+
+All three files are safe to run again. After step 2, sign in as a cashier and
+make a test booking to confirm everything still works.
+
+### Add staff function
+
+"Add staff" in the web admin uses a server function so the admin stays signed in.
+Deploy it once: Supabase dashboard > **Edge Functions** > **Deploy a new function**
+> **Via Editor**, name it `create-staff`, paste the contents of
+`supabase/functions/create-staff/index.ts`, and click **Deploy**.
+(Or with the Supabase CLI: `supabase functions deploy create-staff`.)
+
+## Signing key (do once, before the first APK you send out)
+
+Phones only accept an update if it is signed with the same key as the installed
+app. Create the key once and keep it safe; if it is lost, every phone has to
+uninstall and reinstall.
+
+1. On your computer (Windows PowerShell; `keytool` comes with Android Studio):
+   ```
+   keytool -genkey -v -keystore $env:USERPROFILE\okebori-upload.jks -storetype JKS -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+   ```
+   Choose a strong password and write it down.
+2. Create `android/key.properties` (it is ignored by git; never upload it):
+   ```
+   storePassword=YOUR_PASSWORD
+   keyPassword=YOUR_PASSWORD
+   keyAlias=upload
+   storeFile=C:/Users/YOUR_NAME/okebori-upload.jks
+   ```
+3. Back up `okebori-upload.jks` and the password somewhere safe (not GitHub).
+
+Without `key.properties`, release builds fall back to a temporary debug key and
+print a warning; don't send those APKs to clients.
+
+The app ID is `com.okebori.pos`. Phones with the old test build
+(`com.example.okebori_pos`) should uninstall it once and install the new APK;
+every update after that installs over the top.

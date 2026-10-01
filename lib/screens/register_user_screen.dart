@@ -73,28 +73,16 @@ class _RegisterUserScreenState extends State<RegisterUserScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final supabase = Supabase.instance.client;
-
-      final authResponse = await supabase.auth.signUp(
-        email: _emailController.text.trim(),
-        password: _passwordController.text,
-      );
-
-      if (authResponse.user == null) throw Exception("Failed to create auth user");
-      final authUserId = authResponse.user!.id;
-
-      final businessId = (await supabase.from('businesses').select('id').limit(1).single())['id'];
-
-      await supabase.from('users').insert({
-        'id': authUserId,
-        'business_id': businessId,
-        'branch_id': _selectedBranchId,
-        'role_id': _selectedRoleId,
+      // Created on the server (supabase/functions/create-staff) so the admin stays signed in
+      final response = await Supabase.instance.client.functions.invoke('create-staff', body: {
         'name': _nameController.text.trim(),
         'email': _emailController.text.trim(),
         'phone': _phoneController.text.trim(),
-        'status': 'active',
+        'password': _passwordController.text,
+        'role_id': _selectedRoleId,
+        'branch_id': _selectedBranchId,
       });
+      if (response.status != 200) throw Exception('Could not add staff (${response.status})');
 
       setState(() => _isLoading = false);
 
@@ -106,9 +94,11 @@ class _RegisterUserScreenState extends State<RegisterUserScreen> {
       }
     } catch (e) {
       setState(() => _isLoading = false);
+      // The server function explains what went wrong, e.g. "email already registered"
+      final message = e is FunctionException && e.details is Map ? e.details['error'] : '$e';
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red)
+          SnackBar(content: Text('Error: $message'), backgroundColor: Colors.red)
         );
       }
     }
