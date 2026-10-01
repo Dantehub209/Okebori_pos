@@ -32,13 +32,20 @@ as $$
     and lower(coalesce(u.status, 'active')) = 'active'
 $$;
 
+-- Any active staff account counts, even one with no role set yet
 create or replace function public.is_staff()
 returns boolean
 language sql
 stable
 security definer
 set search_path = public
-as $$ select public.current_staff_role() is not null $$;
+as $$
+  select exists (
+    select 1 from public.users u
+    where u.id = auth.uid()
+      and lower(coalesce(u.status, 'active')) = 'active'
+  )
+$$;
 
 create or replace function public.is_super_admin()
 returns boolean
