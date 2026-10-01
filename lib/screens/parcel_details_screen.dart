@@ -16,6 +16,7 @@ class _ParcelDetailsScreenState extends State<ParcelDetailsScreen> {
   Map<String, dynamic>? _parcel;
   List<Map<String, dynamic>> _history = [];
   String _userRole = 'Cashier';
+  String? _userBranchId;
   bool _isLoading = true;
 
   @override
@@ -33,7 +34,7 @@ class _ParcelDetailsScreenState extends State<ParcelDetailsScreen> {
       // Fetch user role
       final userRes = await supabase
           .from('users')
-          .select('role_id')
+          .select('role_id, branch_id')
           .eq('id', userId)
           .single();
 
@@ -65,6 +66,7 @@ class _ParcelDetailsScreenState extends State<ParcelDetailsScreen> {
         _parcel = parcelRes;
         _history = List<Map<String, dynamic>>.from(historyRes);
         _userRole = roleName;
+        _userBranchId = userRes['branch_id']?.toString();
         _isLoading = false;
       });
     } catch (e) {
@@ -84,6 +86,7 @@ class _ParcelDetailsScreenState extends State<ParcelDetailsScreen> {
         'parcel_id': widget.parcelId,
         'status': newStatus,
         'user_id': userId,
+        'branch_id': _userBranchId,
         'created_at': DateTime.now().toIso8601String(),
       });
 
@@ -92,8 +95,25 @@ class _ParcelDetailsScreenState extends State<ParcelDetailsScreen> {
         _loadDetails();
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Update Error: $e')));
+      // The database explains refusals, e.g. "Only staff at the destination branch can ..."
+      final message = e is PostgrestException ? e.message : '$e';
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message), backgroundColor: Colors.red));
     }
+  }
+
+  // Who may do what (also enforced in the database by supabase/parcel_rules.sql):
+  // the sending branch dispatches or cancels; the destination branch receives and hands over.
+  bool get _isSuperAdmin => _userRole == 'Super Admin';
+  bool get _atOrigin => _isSuperAdmin || (_userBranchId != null && _userBranchId == _parcel!['origin_branch_id']?.toString());
+  bool get _atDestination => _isSuperAdmin || (_userBranchId != null && _userBranchId == _parcel!['destination_branch_id']?.toString());
+  bool get _isFinished => const ['PICKED', 'DELIVERED', 'CANCELLED'].contains(_parcel!['status']);
+
+  bool get _canCancel =>
+      _isSuperAdmin ? !_isFinished : _atOrigin && const ['BOOKED', 'RECEIVED'].contains(_parcel!['status']);
+
+  static String _digits(String phone) {
+    final d = phone.replaceAll(RegExp(r'\D'), '');
+    return d.length > 9 ? d.substring(d.length - 9) : d; // 0712..., 712..., +254712... all match
   }
 
   // NEW: Verify receiver phone and mark as picked
@@ -138,7 +158,7 @@ class _ParcelDetailsScreenState extends State<ParcelDetailsScreen> {
               }
 
               // Verify phone matches
-              if (enteredPhone == receiverPhone) {
+              if (_digits(enteredPhone) == _digits(receiverPhone)) {
                 Navigator.pop(context);
                 await _updateStatus('PICKED');
                 if (mounted) {
@@ -169,33 +189,12 @@ class _ParcelDetailsScreenState extends State<ParcelDetailsScreen> {
 
   void _showStatusOptions() {
     final currentStatus = _parcel!['status'];
-    final isBranchManager = _userRole == 'Branch Manager' || _userRole == 'Super Admin';
-    
-    // Define available statuses based on role and current status
-    List<String> options = [];
-    
-    if (isBranchManager) {
-      // Branch Manager can confirm received parcels
-      if (currentStatus == 'IN_TRANSIT' || currentStatus == 'DISPATCHED') {
-        options.add('ARRIVED');
-      }
-      if (currentStatus == 'ARRIVED') {
-        options.add('READY_FOR_COLLECTION');
-      }
-    }
-    
-    // All roles can mark as picked if ready
-    if (currentStatus == 'READY_FOR_COLLECTION') {
-      // Don't add to options, we'll handle it separately with phone verification
-    }
-    
-    // Add other standard options
-    if (currentStatus == 'BOOKED') {
-      options.add('RECEIVED');
-    }
-    if (!options.contains('CANCELLED') && currentStatus != 'DELIVERED' && currentStatus != 'PICKED') {
-      options.add('CANCELLED');
-    }
+    final options = <String>[
+      if (_atOrigin && (currentStatus == 'BOOKED' || currentStatus == 'RECEIVED')) 'DISPATCHED',
+      if (_atDestination && (currentStatus == 'DISPATCHED' || currentStatus == 'IN_TRANSIT')) 'ARRIVED',
+      if (_atDestination && currentStatus == 'ARRIVED') 'READY_FOR_COLLECTION',
+      if (_canCancel) 'CANCELLED',
+    ];
 
     if (options.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -235,8 +234,6 @@ class _ParcelDetailsScreenState extends State<ParcelDetailsScreen> {
     final destination = _parcel!['destination'] as Map<String, dynamic>?;
     final category = _parcel!['category'] as Map<String, dynamic>?;
     final currentStatus = _parcel!['status'];
-    final isBranchManager = _userRole == 'Branch Manager' || _userRole == 'Super Admin';
-
     return Scaffold(
       appBar: AppBar(
         title: Text(_parcel!['booking_number']),
@@ -267,40 +264,9 @@ class _ParcelDetailsScreenState extends State<ParcelDetailsScreen> {
             ),
             const SizedBox(height: 16),
 
-            // BRANCH MANAGER ACTIONS
-            if (isBranchManager) ...[
-              if (currentStatus == 'IN_TRANSIT' || currentStatus == 'DISPATCHED')
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () => _updateStatus('ARRIVED'),
-                    icon: const Icon(Icons.check_circle),
-                    label: const Text('Confirm Parcel Arrived'),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16)),
-                  ),
-                ),
-              if (currentStatus == 'ARRIVED')
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () => _updateStatus('READY_FOR_COLLECTION'),
-                    icon: const Icon(Icons.inventory),
-                    label: const Text('Mark Ready for Collection'),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.teal, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16)),
-                  ),
-                ),
-              if (currentStatus == 'READY_FOR_COLLECTION')
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _verifyAndMarkPicked,
-                    icon: const Icon(Icons.phone_android),
-                    label: const Text('Verify Receiver & Mark Picked'),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16)),
-                  ),
-                ),
-              const SizedBox(height: 16),
-            ],
+            // ACTIONS for this branch (sending branch dispatches, destination branch receives)
+            ..._actionButtons(currentStatus, origin?['name'], destination?['name']),
+            const SizedBox(height: 16),
 
             // Route Info
             Card(
@@ -377,6 +343,54 @@ class _ParcelDetailsScreenState extends State<ParcelDetailsScreen> {
         ),
       ),
     );
+  }
+
+  List<Widget> _actionButtons(String status, String? originName, String? destinationName) {
+    Widget button(String label, IconData icon, Color color, VoidCallback onPressed) => Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: onPressed,
+              icon: Icon(icon),
+              label: Text(label),
+              style: ElevatedButton.styleFrom(backgroundColor: color, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16)),
+            ),
+          ),
+        );
+
+    final buttons = <Widget>[
+      if (_atOrigin && (status == 'BOOKED' || status == 'RECEIVED'))
+        button('Dispatch Parcel', Icons.local_shipping, AppColors.orange, () => _updateStatus('DISPATCHED')),
+      if (_atDestination && (status == 'DISPATCHED' || status == 'IN_TRANSIT'))
+        button('Confirm Parcel Arrived', Icons.check_circle, AppColors.orange, () => _updateStatus('ARRIVED')),
+      if (_atDestination && status == 'ARRIVED')
+        button('Mark Ready for Collection', Icons.inventory, Colors.teal, () => _updateStatus('READY_FOR_COLLECTION')),
+      if (_atDestination && (status == 'ARRIVED' || status == 'READY_FOR_COLLECTION'))
+        button('Verify Receiver & Hand Over', Icons.phone_android, Colors.green, _verifyAndMarkPicked),
+    ];
+    if (buttons.isNotEmpty) return buttons;
+
+    // Explain why there is nothing to do here
+    String? note;
+    if (const ['DISPATCHED', 'IN_TRANSIT', 'ARRIVED', 'READY_FOR_COLLECTION'].contains(status)) {
+      note = 'Only ${destinationName ?? 'destination'} branch staff can receive and hand over this parcel.';
+    } else if (status == 'BOOKED' || status == 'RECEIVED') {
+      note = 'Waiting for ${originName ?? 'the sending branch'} to dispatch this parcel.';
+    }
+    if (note == null) return [];
+    return [
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(10), border: Border.all(color: AppColors.border)),
+        child: Row(children: [
+          const Icon(Icons.info_outline, size: 18, color: AppColors.muted),
+          const SizedBox(width: 8),
+          Expanded(child: Text(note, style: const TextStyle(color: AppColors.muted))),
+        ]),
+      ),
+    ];
   }
 
   Widget _buildInfoCard(String title, String? name, String? phone) {

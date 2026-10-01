@@ -69,8 +69,11 @@ Security only lets admins change branches, pricing, users and app_version.
    receipt) in one step, so a dropped connection can't leave half a booking.
    **Run this before giving cashiers an APK built from this version.**
 4. `supabase/app_version.sql`: the update alert.
+5. `supabase/parcel_rules.sql`: only the sending branch can dispatch or
+   cancel a parcel, and only the destination branch can receive and hand it
+   over (Super Admins can do anything).
 
-All three files are safe to run again. After step 2, sign in as a cashier and
+All files are safe to run again. After step 2, sign in as a cashier and
 make a test booking to confirm everything still works.
 
 ### Staff functions
