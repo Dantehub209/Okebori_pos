@@ -127,10 +127,15 @@ class _BookingScreenState extends State<BookingScreen> {
   double? get _distanceKm {
     final from = _branch(_originId), to = _branch(_destId);
     if (from == null || to == null || from['id'] == to['id']) return null;
-    final coords = [from['latitude'], from['longitude'], to['latitude'], to['longitude']];
-    if (coords.any((c) => c == null)) return null;
-    final c = coords.map((v) => (v as num).toDouble()).toList();
-    return distanceBetween(c[0], c[1], c[2], c[3]);
+    if (!_hasGps(from) || !_hasGps(to)) return null;
+    double v(Map<String, dynamic> b, String key) => (b[key] as num).toDouble();
+    return distanceBetween(v(from, 'latitude'), v(from, 'longitude'), v(to, 'latitude'), v(to, 'longitude'));
+  }
+
+  /// Older branches were saved as 0,0 when GPS was left empty; treat that as missing.
+  static bool _hasGps(Map<String, dynamic> b) {
+    final lat = b['latitude'] as num?, lon = b['longitude'] as num?;
+    return lat != null && lon != null && !(lat == 0 && lon == 0);
   }
 
   Quote? get _quote {
@@ -148,7 +153,7 @@ class _BookingScreenState extends State<BookingScreen> {
       if (to == null) 'Choose the destination branch.',
       if (sameBranch) 'Destination must be a different branch.',
       if (from != null && to != null && !sameBranch && _distanceKm == null)
-        '${from['latitude'] == null || from['longitude'] == null ? from['name'] : to['name']} has no GPS location. Add it in Settings > Manage Branches.',
+        '${_hasGps(from) ? to['name'] : from['name']} has no GPS location. Ask an admin to add it under Branches in the web admin.',
       if (_senderName.text.trim().isEmpty) "Enter the sender's name.",
       if (_senderPhone.text.trim().isEmpty) "Enter the sender's phone number.",
       if (_receiverName.text.trim().isEmpty) "Enter the receiver's name.",
