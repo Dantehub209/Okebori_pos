@@ -34,6 +34,15 @@ begin
     end if;
   end if;
 
+  -- KRA already has (or is about to get) its invoice: tax records must stay
+  if to_regclass('public.etims_invoices') is not null then
+    execute 'select exists (select 1 from public.etims_invoices where parcel_id::text = $1)'
+      into v_paid using p_parcel_id;
+    if v_paid then
+      raise exception 'This parcel has an eTIMS tax invoice and cannot be deleted. Cancel it instead (a credit note is issued).';
+    end if;
+  end if;
+
   -- Children first: receipts point at payments; payments, history and items point at the parcel
   delete from public.receipts
    where parcel_id::text = p_parcel_id

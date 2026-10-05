@@ -7,6 +7,7 @@ import '../services/staff_profile.dart';
 import 'admin_theme.dart';
 import 'app_version_screen.dart';
 import 'customers_screen.dart';
+import 'etims_screen.dart';
 import 'overview_screen.dart';
 import 'staff_screen.dart';
 
@@ -71,6 +72,7 @@ class _AdminShellState extends State<AdminShell> {
           _Page('Pricing', (p) => const PricingRulesScreen()),
           _Page('Customers', (p) => const CustomersScreen()),
           _Page('Staff', (p) => const StaffScreen()),
+          _Page('eTIMS', (p) => const EtimsScreen()),
           _Page('App updates', (p) => const AppVersionScreen()),
         ],
       ];

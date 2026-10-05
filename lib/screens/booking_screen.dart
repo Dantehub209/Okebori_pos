@@ -40,6 +40,8 @@ class BookingSetup {
   }
 }
 
+typedef BookingResult = ({String parcelId, String bookingNumber, String receiptNumber});
+
 enum PayMethod {
   cash('CASH', 'Cash'),
   mpesa('MPESA_PROMPT', 'M-Pesa'), // prompt on the customer's phone (supabase/mpesa.sql)
@@ -73,8 +75,9 @@ class _BookingScreenState extends State<BookingScreen> {
   final _weight = TextEditingController();
   final _cashReceived = TextEditingController();
   final _mpesaPhone = TextEditingController(); // number that gets the M-Pesa prompt
+  final _kraPin = TextEditingController(); // optional: business customers' PIN on the eTIMS invoice
 
-  late final _controllers = [_senderName, _senderPhone, _receiverName, _receiverPhone, _weight, _cashReceived, _mpesaPhone];
+  late final _controllers = [_senderName, _senderPhone, _receiverName, _receiverPhone, _weight, _cashReceived, _mpesaPhone, _kraPin];
 
   String? _originId;
   String? _destId;
@@ -163,6 +166,8 @@ class _BookingScreenState extends State<BookingScreen> {
       if (_weightKg == null || _weightKg! <= 0) 'Enter the parcel weight in kg.',
       if (quote != null && _method == PayMethod.cash && (_cashAmount ?? 0) < quote.total)
         'Cash received must be at least KSh ${formatKsh(quote.total)}.',
+      if (_kraPin.text.trim().isNotEmpty && !RegExp(r'^[AP]\d{9}[A-Z]$').hasMatch(_kraPin.text.trim().toUpperCase()))
+        'KRA PIN should look like P051234567X.',
       if (_method == PayMethod.mpesa && normalizeKenyanPhone(_mpesaPhone.text) == null)
         "Enter the customer's M-Pesa number, e.g. 0712 345 678.",
     ];
@@ -208,7 +213,7 @@ class _BookingScreenState extends State<BookingScreen> {
 
   /// Saves customers, parcel, payment and receipt in one database call
   /// (supabase/book_parcel.sql), so a dropped connection can't leave half a booking.
-  Future<({String bookingNumber, String receiptNumber})> _saveBooking(Quote quote) async {
+  Future<BookingResult> _saveBooking(Quote quote) async {
     final result = await Supabase.instance.client.rpc('book_parcel', params: {
       'p_origin_branch_id': _originId,
       'p_destination_branch_id': _destId,
@@ -221,8 +226,13 @@ class _BookingScreenState extends State<BookingScreen> {
       'p_receiver_name': _receiverName.text.trim(),
       'p_receiver_phone': _receiverPhone.text.trim(),
       'p_payment_method': _method.code,
+      'p_customer_kra_pin': _kraPin.text.trim().isEmpty ? null : _kraPin.text.trim(),
     }) as Map<String, dynamic>;
-    return (bookingNumber: result['booking_number'].toString(), receiptNumber: result['receipt_number'].toString());
+    return (
+      parcelId: result['parcel_id'].toString(),
+      bookingNumber: result['booking_number'].toString(),
+      receiptNumber: result['receipt_number'].toString(),
+    );
   }
 
   /// M-Pesa: book as AWAITING_PAYMENT, send the prompt, wait for Safaricom's confirmation.
@@ -243,6 +253,7 @@ class _BookingScreenState extends State<BookingScreen> {
         'p_receiver_name': _receiverName.text.trim(),
         'p_receiver_phone': _receiverPhone.text.trim(),
         'p_payment_method': PayMethod.mpesa.code,
+        'p_customer_kra_pin': _kraPin.text.trim().isEmpty ? null : _kraPin.text.trim(),
       }) as Map<String, dynamic>;
     } catch (e) {
       if (!mounted) return;
@@ -268,7 +279,7 @@ class _BookingScreenState extends State<BookingScreen> {
     );
     if (!mounted) return;
     if (receiptNumber != null) {
-      await _showDone((bookingNumber: bookingNumber, receiptNumber: receiptNumber), quote);
+      await _showDone((parcelId: booking['parcel_id'].toString(), bookingNumber: bookingNumber, receiptNumber: receiptNumber), quote);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('M-Pesa booking cancelled. You can take cash or card instead and book again.'),
@@ -276,7 +287,29 @@ class _BookingScreenState extends State<BookingScreen> {
     }
   }
 
-  Future<bool> _printReceipt(({String bookingNumber, String receiptNumber}) result, Quote quote) async {
+  /// The eTIMS invoice for this booking, if eTIMS is on. In simulation it is ready at once;
+  /// against KRA it may take a moment, so wait briefly before printing without it.
+  Future<Map<String, dynamic>?> _loadInvoice(String parcelId) async {
+    Map<String, dynamic>? last;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        final row = await Supabase.instance.client
+            .from('etims_invoices')
+            .select('mode, status, invoice_number, kra_receipt_number, kra_signature, kra_internal_data, kra_sdc_id, qr_text, signed_at')
+            .eq('parcel_id', parcelId)
+            .eq('invoice_type', 'SALE')
+            .maybeSingle();
+        if (row == null || row['status'] == 'signed') return row;
+        last = row;
+      } catch (_) {
+        return null; // eTIMS not set up yet
+      }
+      await Future.delayed(const Duration(seconds: 2));
+    }
+    return last; // still queued: the receipt says it is being sent to KRA
+  }
+
+  Future<bool> _printReceipt(BookingResult result, Quote quote, Map<String, dynamic>? invoice) async {
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
       await Future.delayed(const Duration(seconds: 2)); // No Bluetooth printing on Windows: simulate
       return true;
@@ -299,14 +332,21 @@ class _BookingScreenState extends State<BookingScreen> {
       receiverPhone: _receiverPhone.text.trim(),
       destination: _branch(_destId)?['name'] ?? '',
       weight: _weightKg!,
-      amount: double.parse(quote.total.toStringAsFixed(2)),
+      amount: quote.total,
+      taxable: quote.taxable,
+      vatRate: quote.vatRate,
+      vat: quote.vat,
       paymentMethod: _method.label,
       cashierName: widget.profile.name,
+      customerKraPin: _kraPin.text.trim().toUpperCase(),
+      invoice: invoice,
     );
   }
 
-  Future<void> _showDone(({String bookingNumber, String receiptNumber}) result, Quote quote) async {
+  Future<void> _showDone(BookingResult result, Quote quote) async {
     final change = _method == PayMethod.cash ? (_cashAmount ?? 0) - quote.total : 0.0;
+    final invoice = await _loadInvoice(result.parcelId);
+    if (!mounted) return;
     var printing = false;
     await showDialog<void>(
       context: context,
@@ -321,6 +361,12 @@ class _BookingScreenState extends State<BookingScreen> {
               _summaryRow('Booking no.', result.bookingNumber),
               _summaryRow('Receipt no.', result.receiptNumber),
               _summaryRow('Paid (${_method.label})', 'KSh ${formatKsh(quote.total)}'),
+              if (quote.vatRate > 0) _summaryRow('incl. VAT ${formatKsh(quote.vatRate)}%', 'KSh ${formatKsh(quote.vat)}'),
+              if (invoice != null)
+                _summaryRow(
+                  invoice['mode'] == 'simulation' ? 'eTIMS (simulation)' : 'eTIMS invoice',
+                  invoice['status'] == 'signed' ? '${invoice['kra_receipt_number']}' : 'Sending to KRA…',
+                ),
               if (change > 0) ...[
                 const SizedBox(height: 12),
                 _messageBox('Change to give: KSh ${formatKsh(change)}', AppColors.successBg, AppColors.successText, margin: false),
@@ -338,7 +384,7 @@ class _BookingScreenState extends State<BookingScreen> {
                   ? null
                   : () async {
                       setDialogState(() => printing = true);
-                      final ok = await _printReceipt(result, quote);
+                      final ok = await _printReceipt(result, quote, invoice);
                       if (!dialogContext.mounted || !mounted) return;
                       setDialogState(() => printing = false);
                       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -397,6 +443,8 @@ class _BookingScreenState extends State<BookingScreen> {
             _textField(_senderName, 'Full name', capitalize: true),
             const SizedBox(height: 12),
             _textField(_senderPhone, 'Phone number', phone: true),
+            const SizedBox(height: 12),
+            _textField(_kraPin, 'Customer KRA PIN (optional, for business invoices)', upper: true),
           ]),
           _card([
             _sectionTitle('Receiver'),
@@ -596,6 +644,8 @@ class _BookingScreenState extends State<BookingScreen> {
                   quote.weightCharge,
                 ),
                 _priceRow('Distance, $km km', quote.distanceCharge),
+                if (quote.rounding.abs() >= 0.01) _priceRow('Rounding', quote.rounding),
+                if (quote.vatRate > 0) _priceRow('VAT ${formatKsh(quote.vatRate)}%', quote.vat),
               ]),
             ),
             Container(
