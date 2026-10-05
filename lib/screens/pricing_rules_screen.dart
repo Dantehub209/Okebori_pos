@@ -18,6 +18,7 @@ class _PricingRulesScreenState extends State<PricingRulesScreen> {
   final _baseWeightController = TextEditingController();
   final _extraKgPriceController = TextEditingController();
   final _fuelCostController = TextEditingController();
+  final _vatController = TextEditingController();
 
   @override
   void initState() {
@@ -31,6 +32,7 @@ class _PricingRulesScreenState extends State<PricingRulesScreen> {
     _baseWeightController.dispose();
     _extraKgPriceController.dispose();
     _fuelCostController.dispose();
+    _vatController.dispose();
     super.dispose();
   }
 
@@ -53,6 +55,7 @@ class _PricingRulesScreenState extends State<PricingRulesScreen> {
           _baseWeightController.text = response['base_weight_kg'].toString();
           _extraKgPriceController.text = response['price_per_extra_kg'].toString();
           _fuelCostController.text = response['fuel_cost_per_km'].toString();
+          _vatController.text = (response['vat_rate'] ?? 0).toString();
           _isLoading = false;
         });
       } else {
@@ -61,6 +64,7 @@ class _PricingRulesScreenState extends State<PricingRulesScreen> {
           _baseWeightController.text = '5';
           _extraKgPriceController.text = '50';
           _fuelCostController.text = '30';
+          _vatController.text = '0';
           _isLoading = false;
         });
       }
@@ -95,6 +99,7 @@ class _PricingRulesScreenState extends State<PricingRulesScreen> {
         'base_weight_kg': double.parse(_baseWeightController.text),
         'price_per_extra_kg': double.parse(_extraKgPriceController.text),
         'fuel_cost_per_km': double.parse(_fuelCostController.text),
+        'vat_rate': double.tryParse(_vatController.text.trim()) ?? 0,
         'updated_at': DateTime.now().toIso8601String(),
       };
 
@@ -147,6 +152,14 @@ class _PricingRulesScreenState extends State<PricingRulesScreen> {
                   _buildTextField(_extraKgPriceController, 'Price per Extra KG (KES)', 'e.g., 50', Icons.add_circle_outline),
                   const SizedBox(height: 16),
                   _buildTextField(_fuelCostController, 'Fuel Cost per KM (KES)', 'e.g., 30', Icons.local_gas_station),
+                  const SizedBox(height: 16),
+                  _buildTextField(_vatController, 'VAT % added on top (0 = off)', 'e.g., 16', Icons.receipt_long),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Prices above exclude VAT; customers pay price + VAT, rounded up to whole shillings. '
+                    'Turn VAT on only after every branch has the app version that shows it.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
 
                   const SizedBox(height: 32),
                   SizedBox(

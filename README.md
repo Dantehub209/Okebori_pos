@@ -76,6 +76,7 @@ Security only lets admins change branches, pricing, users and app_version.
    payments, receipts and tracking) and customers from the web admin. Parcels
    paid by M-Pesa cannot be deleted.
 7. `supabase/mpesa.sql`: M-Pesa payment requests (run after `book_parcel.sql`).
+8. `supabase/etims.sql`: KRA eTIMS invoices and credit notes (run after `mpesa.sql`).
 
 `book_parcel.sql` also makes the server calculate every price (`quote_parcel`);
 the amount the phone sends is only used to spot an out-of-date screen. Totals
@@ -157,3 +158,23 @@ print a warning; don't send those APKs to clients.
 The app ID is `com.okebori.pos`. Phones with the old test build
 (`com.example.okebori_pos`) should uninstall it once and install the new APK;
 every update after that installs over the top.
+
+## VAT and eTIMS
+
+**VAT** is set in the web admin under Pricing (*VAT % added on top*). Prices
+exclude VAT; customers pay price + VAT in whole shillings, rounded up, and the
+VAT is worked back from that total so the invoice adds up exactly. It starts at
+0%: turn on 16% only after every branch runs the app version that shows VAT
+(older apps would get "price has changed" errors).
+
+**eTIMS** mode is set in the web admin under eTIMS:
+
+| Mode | What happens |
+|---|---|
+| Off | No invoices |
+| Simulation | Every paid booking gets an invoice with pretend KRA numbers and a QR code, printed as "SIMULATION – NOT A TAX INVOICE" |
+| KRA sandbox / Live | Invoices are queued for the `etims-sync` server function (built once KRA issues sandbox details) |
+
+Cancelling a paid parcel issues a credit note. Signed invoices cannot be edited
+or deleted, and parcels with invoices cannot be deleted. Customers can give a
+KRA PIN at booking for business invoices.

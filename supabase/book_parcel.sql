@@ -1,6 +1,6 @@
 -- Run in the Supabase SQL editor (safe to run again).
 --
--- quote_parcel works out the price on the server from the pricing rules and the
+-- quote_parcel works out the price on the server (plus VAT from the pricing rules) from the pricing rules and the
 -- branches' GPS, the same way the app shows it. book_parcel always charges this
 -- server price: the amount sent by the phone is only used to catch a stale screen.
 --
@@ -11,6 +11,13 @@
 --
 -- It runs with the caller's own permissions (security invoker), so the access
 -- rules in security.sql still apply.
+
+-- VAT (added on top of the price) and the customer's KRA PIN for eTIMS invoices.
+-- VAT starts at 0%: set it in the admin (Pricing) once every phone has the new app.
+alter table public.pricing_rules add column if not exists vat_rate numeric not null default 0;
+alter table public.parcels add column if not exists vat_rate numeric not null default 0;
+alter table public.parcels add column if not exists vat_amount numeric not null default 0;
+alter table public.parcels add column if not exists customer_kra_pin text;
 
 create or replace function public.quote_parcel(
   p_origin_branch_id text,
@@ -30,9 +37,12 @@ declare
   v_base_kg numeric := 5;
   v_per_kg numeric := 50;
   v_per_km numeric := 30;
+  v_vat_rate numeric := 0;
   v_km double precision;
   v_extra_kg numeric;
+  v_net numeric;
   v_total numeric;
+  v_taxable numeric;
 begin
   select id, name, latitude, longitude into v_from from public.branches where id::text = p_origin_branch_id;
   select id, name, latitude, longitude into v_to from public.branches where id::text = p_destination_branch_id;
@@ -61,6 +71,7 @@ begin
     v_base_kg := v_rules.base_weight_kg;
     v_per_kg := v_rules.price_per_extra_kg;
     v_per_km := v_rules.fuel_cost_per_km;
+    v_vat_rate := coalesce(v_rules.vat_rate, 0);
   end if;
 
   -- Haversine, identical to distanceBetween() in lib/services/pricing.dart
@@ -69,8 +80,12 @@ begin
             + cos(radians(v_from.latitude)) * cos(radians(v_to.latitude))
               * (1 - cos(radians(v_to.longitude - v_from.longitude))) / 2));
   v_extra_kg := greatest(0, p_weight_kg - v_base_kg);
-  -- Whole shillings, rounded up (M-Pesa only accepts whole amounts)
-  v_total := ceil(round(v_base + v_extra_kg * v_per_kg + v_km::numeric * v_per_km, 2));
+  v_net := round(v_base + v_extra_kg * v_per_kg + v_km::numeric * v_per_km, 2);
+  -- Prices exclude VAT; the customer pays price + VAT, in whole shillings rounded up
+  -- (M-Pesa only accepts whole amounts). The VAT is worked back from that total so the
+  -- eTIMS invoice adds up exactly: taxable + vat = total.
+  v_total := ceil(round(v_net * (1 + v_vat_rate / 100), 2));
+  v_taxable := round(v_total / (1 + v_vat_rate / 100), 2);
 
   return jsonb_build_object(
     'base_rate', v_base,
@@ -78,10 +93,17 @@ begin
     'weight_charge', v_extra_kg * v_per_kg,
     'distance_km', round(v_km::numeric, 2),
     'distance_charge', round(v_km::numeric * v_per_km, 2),
+    'rounding', v_taxable - v_net,
+    'taxable', v_taxable,
+    'vat_rate', v_vat_rate,
+    'vat', v_total - v_taxable,
     'total', v_total
   );
 end;
 $$;
+
+-- Replaced by the version below (adds the customer's KRA PIN)
+drop function if exists public.book_parcel(text, text, text, numeric, numeric, numeric, text, text, text, text, text, text);
 
 create or replace function public.book_parcel(
   p_origin_branch_id text,
@@ -95,7 +117,8 @@ create or replace function public.book_parcel(
   p_receiver_name text,
   p_receiver_phone text,
   p_payment_method text,
-  p_mpesa_code text default null
+  p_mpesa_code text default null,
+  p_customer_kra_pin text default null
 ) returns jsonb
 language plpgsql
 security invoker
@@ -122,6 +145,11 @@ begin
   end if;
   if p_payment_method = 'MPESA' and coalesce(trim(p_mpesa_code), '') = '' then
     raise exception 'M-Pesa transaction code is required';
+  end if;
+
+  -- KRA PINs look like A123456789B (individuals start with A, companies with P)
+  if nullif(trim(p_customer_kra_pin), '') is not null and upper(trim(p_customer_kra_pin)) !~ '^[AP][0-9]{9}[A-Z]$' then
+    raise exception 'KRA PIN should look like P051234567X.';
   end if;
 
   -- The server decides the price
@@ -155,10 +183,10 @@ begin
   -- jsonb_populate_record converts each value to the column's real type
   insert into public.parcels (business_id, sender_id, receiver_id, origin_branch_id, destination_branch_id,
                               category_id, weight_kg, declared_value, is_fragile, shipping_charge, distance_km,
-                              status, booked_by)
+                              status, booked_by, vat_rate, vat_amount, customer_kra_pin)
   select r.business_id, r.sender_id, r.receiver_id, r.origin_branch_id, r.destination_branch_id,
          r.category_id, r.weight_kg, r.declared_value, r.is_fragile, r.shipping_charge, r.distance_km,
-         r.status, r.booked_by
+         r.status, r.booked_by, r.vat_rate, r.vat_amount, r.customer_kra_pin
   from jsonb_populate_record(null::public.parcels, jsonb_build_object(
     'business_id', v_business_id,
     'sender_id', v_sender_id,
@@ -172,7 +200,10 @@ begin
     'shipping_charge', v_charge,
     'distance_km', (v_quote->>'distance_km')::numeric,
     'status', case when v_awaiting then 'AWAITING_PAYMENT' else 'BOOKED' end,
-    'booked_by', auth.uid())) r
+    'booked_by', auth.uid(),
+    'vat_rate', (v_quote->>'vat_rate')::numeric,
+    'vat_amount', (v_quote->>'vat')::numeric,
+    'customer_kra_pin', nullif(upper(trim(p_customer_kra_pin)), ''))) r
   returning * into v_parcel;
 
   -- M-Pesa prompt: payment and receipt are added only when Safaricom confirms

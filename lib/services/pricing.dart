@@ -7,11 +7,15 @@ class PricingRules {
   final double pricePerExtraKg;
   final double fuelCostPerKm;
 
+  /// VAT in percent, added on top of the price (0 = off).
+  final double vatRate;
+
   const PricingRules({
     this.basePrice = 150.0,
     this.baseWeightKg = 5.0,
     this.pricePerExtraKg = 50.0,
     this.fuelCostPerKm = 30.0,
+    this.vatRate = 0,
   });
 
   factory PricingRules.fromRow(Map<String, dynamic> row) => PricingRules(
@@ -19,15 +23,22 @@ class PricingRules {
         baseWeightKg: (row['base_weight_kg'] as num).toDouble(),
         pricePerExtraKg: (row['price_per_extra_kg'] as num).toDouble(),
         fuelCostPerKm: (row['fuel_cost_per_km'] as num).toDouble(),
+        vatRate: (row['vat_rate'] as num?)?.toDouble() ?? 0,
       );
 }
 
+double _round2(double v) => double.parse(v.toStringAsFixed(2));
+
+/// Mirrors quote_parcel in supabase/book_parcel.sql: prices exclude VAT; the customer pays
+/// price + VAT in whole shillings rounded up, and the VAT is worked back from that total
+/// so the eTIMS invoice adds up exactly (taxable + vat = total).
 class Quote {
   final double baseRate;
   final double extraWeightKg;
   final double weightCharge;
   final double distanceKm;
   final double distanceCharge;
+  final double vatRate;
 
   const Quote({
     required this.baseRate,
@@ -35,10 +46,14 @@ class Quote {
     required this.weightCharge,
     required this.distanceKm,
     required this.distanceCharge,
+    this.vatRate = 0,
   });
 
-  /// Whole shillings, rounded up, exactly like quote_parcel on the server (M-Pesa needs whole amounts).
-  double get total => double.parse((baseRate + weightCharge + distanceCharge).toStringAsFixed(2)).ceilToDouble();
+  double get net => _round2(baseRate + weightCharge + distanceCharge);
+  double get total => _round2(net * (1 + vatRate / 100)).ceilToDouble();
+  double get taxable => _round2(total / (1 + vatRate / 100));
+  double get vat => _round2(total - taxable);
+  double get rounding => _round2(taxable - net);
 }
 
 Quote calculateQuote(PricingRules rules, double weightKg, double distanceKm) {
@@ -49,6 +64,7 @@ Quote calculateQuote(PricingRules rules, double weightKg, double distanceKm) {
     weightCharge: extraKg * rules.pricePerExtraKg,
     distanceKm: distanceKm,
     distanceCharge: distanceKm * rules.fuelCostPerKm,
+    vatRate: rules.vatRate,
   );
 }
 
