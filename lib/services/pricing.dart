@@ -37,7 +37,8 @@ class Quote {
     required this.distanceCharge,
   });
 
-  double get total => baseRate + weightCharge + distanceCharge;
+  /// Whole shillings, rounded up, exactly like quote_parcel on the server (M-Pesa needs whole amounts).
+  double get total => double.parse((baseRate + weightCharge + distanceCharge).toStringAsFixed(2)).ceilToDouble();
 }
 
 Quote calculateQuote(PricingRules rules, double weightKg, double distanceKm) {
@@ -63,4 +64,16 @@ double distanceBetween(double lat1, double lon1, double lat2, double lon2) {
 String formatKsh(double amount) {
   final rounded = double.parse(amount.toStringAsFixed(2));
   return NumberFormat(rounded == rounded.roundToDouble() ? '#,##0' : '#,##0.00').format(rounded);
+}
+
+/// 0712345678, 712345678, +254 712 345 678 -> 254712345678; null if not a Kenyan mobile number.
+/// Same rule as normalizePhone() in supabase/functions/mpesa-pay.
+String? normalizeKenyanPhone(String input) {
+  var d = input.replaceAll(RegExp(r'\D'), '');
+  if (d.startsWith('0')) {
+    d = '254${d.substring(1)}';
+  } else if (d.length == 9 && (d.startsWith('7') || d.startsWith('1'))) {
+    d = '254$d';
+  }
+  return RegExp(r'^254(7|1)\d{8}$').hasMatch(d) ? d : null;
 }

@@ -11,6 +11,8 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_paid boolean;
 begin
   if not exists (
     select 1 from public.users u join public.roles r on r.id = u.role_id
@@ -23,6 +25,15 @@ begin
     raise exception 'Parcel not found.';
   end if;
 
+  -- Real money received through M-Pesa (and, later, KRA eTIMS invoices) must stay on record
+  if to_regclass('public.mpesa_requests') is not null then
+    execute 'select exists (select 1 from public.mpesa_requests where parcel_id::text = $1 and status in (''success'', ''amount_mismatch''))'
+      into v_paid using p_parcel_id;
+    if v_paid then
+      raise exception 'This parcel was paid by M-Pesa and cannot be deleted. Cancel it and refund instead.';
+    end if;
+  end if;
+
   -- Children first: receipts point at payments; payments, history and items point at the parcel
   delete from public.receipts
    where parcel_id::text = p_parcel_id
@@ -31,6 +42,9 @@ begin
   delete from public.parcel_status_history where parcel_id::text = p_parcel_id;
   if to_regclass('public.parcel_items') is not null then
     execute 'delete from public.parcel_items where parcel_id::text = $1' using p_parcel_id;
+  end if;
+  if to_regclass('public.mpesa_requests') is not null then
+    execute 'delete from public.mpesa_requests where parcel_id::text = $1' using p_parcel_id;
   end if;
   delete from public.parcels where id::text = p_parcel_id;
 end;

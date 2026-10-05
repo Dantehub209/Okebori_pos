@@ -73,7 +73,44 @@ Security only lets admins change branches, pricing, users and app_version.
    cancel a parcel, and only the destination branch can receive and hand it
    over (Super Admins can do anything).
 6. `supabase/delete_records.sql`: lets Super Admins delete parcels (with their
-   payments, receipts and tracking) and customers from the web admin.
+   payments, receipts and tracking) and customers from the web admin. Parcels
+   paid by M-Pesa cannot be deleted.
+7. `supabase/mpesa.sql`: M-Pesa payment requests (run after `book_parcel.sql`).
+
+`book_parcel.sql` also makes the server calculate every price (`quote_parcel`);
+the amount the phone sends is only used to spot an out-of-date screen. Totals
+are whole shillings, rounded up.
+
+## M-Pesa (Daraja, STK push)
+
+1. Daraja portal: create an app with **Lipa Na M-Pesa Sandbox** (M-Pesa Express).
+2. Supabase > Edge Functions > **Secrets**:
+
+   | Name | Value |
+   |---|---|
+   | `MPESA_ENV` | `sandbox` (later `production`) |
+   | `MPESA_CONSUMER_KEY` / `MPESA_CONSUMER_SECRET` | from the Daraja app |
+   | `MPESA_SHORTCODE` | sandbox `174379`, later your Paybill/store number |
+   | `MPESA_PASSKEY` | Lipa na M-Pesa passkey |
+   | `MPESA_CALLBACK_TOKEN` | a long random password you make up (30+ characters) |
+   | `MPESA_TRANSACTION_TYPE` | optional, `CustomerBuyGoodsOnline` for a Till |
+   | `MPESA_PARTY_B` | optional, the Till number for Buy Goods |
+
+3. Deploy two functions (Via Editor):
+   - `mpesa-pay` from `supabase/functions/mpesa-pay/index.ts` (default settings)
+   - `mpesa-callback` from `supabase/functions/mpesa-callback/index.ts` with
+     **Enforce JWT verification turned OFF**: Safaricom cannot sign in; the
+     secret token in the callback address protects it instead.
+
+How a payment works: the cashier taps **Send M-Pesa prompt**; the parcel is
+saved as AWAITING_PAYMENT at the server's price; the customer enters their PIN;
+Safaricom calls `mpesa-callback`, which double-checks with Safaricom and only
+then records the payment and receipt and books the parcel. Cashiers cannot
+mark M-Pesa payments by hand, a receipt number can be used once, paying less
+than the price does not book the parcel, and prompts are rate-limited.
+
+Going live: change the secrets (`MPESA_ENV=production`, live keys, your
+Paybill/Till and passkey). No code changes.
 
 All files are safe to run again. After step 2, sign in as a cashier and
 make a test booking to confirm everything still works.
