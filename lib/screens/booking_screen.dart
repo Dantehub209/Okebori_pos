@@ -709,8 +709,19 @@ class _MpesaWaitDialogState extends State<MpesaWaitDialog> {
       final res = await Supabase.instance.client.functions.invoke('mpesa-pay', body: body);
       return Map<String, dynamic>.from(res.data as Map);
     } on FunctionException catch (e) {
-      throw Exception(e.details is Map ? e.details['error'] : 'M-Pesa error (${e.status})');
+      throw Exception(_functionError(e));
     }
+  }
+
+  /// Turns whatever Supabase or our function sent back into a sentence the cashier can act on.
+  static String _functionError(FunctionException e) {
+    final d = e.details;
+    String? text;
+    if (d is Map) text = (d['error'] ?? d['message'] ?? d['msg'])?.toString();
+    if (d is String && d.trim().isNotEmpty) text = d.trim();
+    if (e.status == 404) return 'The mpesa-pay function is not deployed in Supabase.';
+    if (e.status == 401) return 'Please sign in again. (${text ?? 'not authorised'})';
+    return text == null ? 'M-Pesa error ${e.status}: ${e.reasonPhrase ?? 'no details'}' : '$text (${e.status})';
   }
 
   Future<void> _send() async {
@@ -730,7 +741,7 @@ class _MpesaWaitDialogState extends State<MpesaWaitDialog> {
       if (mounted) {
         setState(() {
           _state = 'failed';
-          _message = '$e'.replaceFirst('Exception: ', '');
+          _message = e is Exception ? '$e'.replaceFirst('Exception: ', '') : 'M-Pesa error: $e';
         });
       }
     }
