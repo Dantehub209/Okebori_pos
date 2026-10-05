@@ -30,6 +30,21 @@ void main() {
     expect(heavy.total, 150 + 125 + 200);
   });
 
+  test('totals are whole shillings, rounded up like the server', () {
+    const rules = PricingRules(basePrice: 150, baseWeightKg: 5, pricePerExtraKg: 50, fuelCostPerKm: 1.2);
+    expect(calculateQuote(rules, 2, 136.65).total, 314); // 150 + 163.98 = 313.98 -> 314
+    expect(calculateQuote(rules, 2, 100).total, 270); // exact amounts stay as they are
+  });
+
+  test('Kenyan phone numbers are normalised like the M-Pesa server function', () {
+    expect(normalizeKenyanPhone('0712 345 678'), '254712345678');
+    expect(normalizeKenyanPhone('+254712345678'), '254712345678');
+    expect(normalizeKenyanPhone('712345678'), '254712345678');
+    expect(normalizeKenyanPhone('0110345678'), '254110345678');
+    expect(normalizeKenyanPhone('071234567'), isNull);
+    expect(normalizeKenyanPhone('0812345678'), isNull);
+  });
+
   test('formatKsh drops .00 but keeps real cents', () {
     expect(formatKsh(350), '350');
     expect(formatKsh(1250.5), '1,250.50');
@@ -66,5 +81,31 @@ void main() {
     await tester.tap(find.text('Take KSh ${formatKsh(quote.total)} cash and book'));
     await tester.pumpAndSettle();
     expect(find.text("Enter the sender's name."), findsOneWidget);
+  });
+
+  testWidgets('M-Pesa sends a prompt to the sender\'s number by default', (tester) async {
+    tester.view.physicalSize = const Size(1080, 4000);
+    tester.view.devicePixelRatio = 2.5;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(MaterialApp(
+      theme: buildAppTheme(),
+      home: Scaffold(body: BookingScreen(profile: _profile, loadSetup: () async => _setup)),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(DropdownButtonFormField<String>, 'To'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Nakuru').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Phone number').first, '0712345678');
+    await tester.enterText(find.widgetWithText(TextField, 'Weight (kg)'), '2');
+    await tester.tap(find.text('M-Pesa'));
+    await tester.pumpAndSettle();
+
+    final quote = calculateQuote(_setup.rules, 2, distanceBetween(-1.2864, 36.8172, -0.3031, 36.0800));
+    expect(find.widgetWithText(TextField, "Customer's M-Pesa number"), findsOneWidget);
+    expect(find.text('0712345678'), findsNWidgets(2)); // sender phone copied into the M-Pesa field
+    expect(find.text('Send KSh ${formatKsh(quote.total)} M-Pesa prompt'), findsOneWidget);
   });
 }

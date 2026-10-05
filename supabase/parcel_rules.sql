@@ -2,6 +2,7 @@
 --
 -- Who may move a parcel to each status, checked by the database itself:
 --   * Sending branch staff:      Received, Dispatched, In transit, and Cancel (only before dispatch)
+--   * Awaiting M-Pesa payment:   only the payment confirmation can book it; the branch may cancel
 --   * Destination branch staff:  Arrived, Ready for collection, Picked / Delivered
 --   * Super Admins:              anything, including fixing finished or cancelled parcels
 -- "Staff" means anyone assigned to that branch (cashier or manager).
@@ -36,6 +37,11 @@ begin
     raise exception 'This parcel is already %. Only a Super Admin can change it.', lower(old.status);
   end if;
 
+  -- Waiting for M-Pesa: only the payment confirmation books it; the branch may cancel
+  if old.status = 'AWAITING_PAYMENT' and new.status <> 'CANCELLED' then
+    raise exception 'This parcel is waiting for M-Pesa payment.';
+  end if;
+
   if new.status in ('ARRIVED', 'READY_FOR_COLLECTION', 'PICKED', 'DELIVERED') then
     if v_branch is distinct from old.destination_branch_id::text then
       raise exception 'Only staff at the destination branch can mark this parcel %.', lower(replace(new.status, '_', ' '));
@@ -44,7 +50,7 @@ begin
     if v_branch is distinct from old.origin_branch_id::text then
       raise exception 'Only staff at the sending branch can mark this parcel %.', lower(replace(new.status, '_', ' '));
     end if;
-    if new.status = 'CANCELLED' and old.status not in ('BOOKED', 'RECEIVED') then
+    if new.status = 'CANCELLED' and old.status not in ('BOOKED', 'RECEIVED', 'AWAITING_PAYMENT') then
       raise exception 'This parcel has already left. Only a Super Admin can cancel it now.';
     end if;
   end if;
